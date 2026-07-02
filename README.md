@@ -1,88 +1,95 @@
-# FABLE 5: ZOMBIES 🧟
+# FABLE 5: UNDEAD BUNKER 🧟
 
-A wave-based zombies FPS that runs entirely in the browser. No engine, no
-asset files — every model, texture, and sound is generated procedurally with
-Three.js and WebAudio.
-
-![Genre](https://img.shields.io/badge/genre-zombies%20FPS-red)
-![Stack](https://img.shields.io/badge/stack-Three.js%20%2B%20Vite-9dff57)
+A round-based zombies survival FPS in the browser — a full port of the
+*Undead Bunker* design handoff (see `design/undead_bunker/`) onto a modern
+Three.js (r185) + Vite engine. Every model, texture, and sound is procedural;
+the one external asset is the **Ray Gun**, built from an uploaded STL
+(624K triangles, decimated to 27.7K for the web).
 
 ## Play
 
 ```bash
 npm install
-npm run dev        # then open http://localhost:5173
+npm run dev        # open http://localhost:5173
 ```
 
-`npm run build` produces a static bundle in `dist/`.
+`npm run build` produces a static bundle (game + Asset Library) in `dist/`.
 
 ## Controls
 
 | Key | Action |
 | --- | --- |
-| `W A S D` | Move |
-| `Mouse` / `LMB` / `RMB` | Aim / shoot / aim-down-sights |
-| **`Q` / `E`** | **Smooth lean** — swerve your body left/right and shoot around corners |
-| `Shift` / `Space` | Sprint / jump |
+| `WASD` / `Shift` | Move / sprint |
+| `Mouse` `LMB` `RMB` | Aim · fire / place build piece · ADS / remove piece |
+| **`Q` / `E`** | **Smooth lean** — swerve and shoot around corners |
+| `1–9` / wheel | Hotbar |
+| **`T`** | Inventory & crafting |
 | `R` | Reload |
-| **`T`** | **Inventory** (Minecraft-style — moved off `E`, which leans) |
-| `1–5` | Hotbar |
-| `F` | Quick-use a medkit |
+| `F` | Interact — buy, gather, enter car, use bench/anvil · **hold** to rebuild barricades |
+| `Space` | Jump — or jetpack thrust once you craft it |
 
-## Features
+## The loop
 
-- **Climbable architecture** — a ruined chapel with a stone staircase to the
-  rooftop and an outdoor sniper platform. Step-up collision physics is shared
-  by player *and* zombies, so the horde follows you upstairs.
-- **Q/E lean** — exponentially smoothed body roll + lateral offset, probed
-  against walls so you can't clip your head through stone.
-- **Minecraft-style inventory on `T`** — click-to-carry slots, stack merging,
-  tooltips, four armor slots (helmet / chest / leggings / boots), right-click
-  to equip armor or use medkits.
-- **Live 3D paperdoll** — your character renders beside the armor slots
-  wearing whatever you equip, and his head follows your cursor around the
-  screen, just like the Minecraft inventory doll.
-- **Armor tiers** — Scrap, Steel, and Nightforged; armor absorbs 65% of
-  incoming damage until it shatters.
-- **Four weapons** — M1911, Viper SMG, Gravedigger shotgun, and the rare
-  FABLE .500 revolver. Procedural viewmodels with sway, bob, recoil, ADS,
-  tracers, ejected casings, and a real muzzle-flash light.
-- **Three zombie breeds** — walkers, sprinting runners, and brute tanks that
-  guarantee juicy drops. Zombies rise out of graves, take limb-based damage,
-  and headshots pop heads clean off.
-- **Blood moons** — every 5th wave the sky turns red and the horde gets fast.
-- **Wave-clear bullet time** — the last kill of a wave drops the world into
-  slow motion.
-- **Killstreaks, damage numbers, kill feed, loot beacons, ground mist,
-  flickering lamps** — the whole arcade package.
-- **100% procedural audio** — gunshots, layered zombie groans, wind and a
-  detuned drone bed, all synthesized in WebAudio at runtime.
+Start with 500 points and a Mauser C96 in a boarded-up bunker at night.
+Zombies rise outside, tear the boards off the windows, and vault in —
+**+10 a hit, +50 a kill (+90 headshots), +10 a board repaired**. Spend it on:
+
+- **Doors** (750–1500) — Armory, Storage, the mezzanine stairs, the Campsite
+- **Wall-buys** — K-98 (600), Trench Gun (1200), M1928 SMG (1750); half-price ammo refills
+- **Mystery Box** (950) — MG-42, STG-44, HELIOS-8 Scatter Laser, Arc Projector,
+  or the **Ray Gun**… unless the teddy bear sends the box to another pad
+- **Perks** (max 4) — Tough Tonic, Rapid Rounds, Fleet Foot, Deadeye
+- **Pack-a-Punch "The Reforger"** (2500) — watch your gun ride the tray under
+  the stamp and come back **★**, ×2.5 damage, purple
+- **Electro-trap** (1000) — fries the open camp gate for 25 s
+- **Building** (50/piece) — Fortnite-style walls, floors, and stairs on a 2m
+  grid; your stairs are genuinely climbable and zombies path around walls
+
+Zombies drop **wood and coal**. Gather more at scavenge nodes, then craft in
+the inventory (2×2), on a placed **Crafting Bench** (3×3), or an **Anvil**:
+a **Magic Wand** (2 wood + 1 coal) turns materials into random weapons with
+a channelled craft sequence — shotgun, assault rifle, or a **wonder weapon**
+(30% chance it comes out pre-★). Craft the **Jetpack** (wand + 4 wood +
+4 coal) and hold Space to fly; forge **Jet Fuel** from 3 coal at the anvil.
+
+The **Riptide Coupe** deploys from your Car Keys — third-person chase cam,
+crash physics, and 80+22·speed damage to anything shambling in front of it.
+
+Fable 5 extras kept from the original build: the **Q/E lean**, and the
+**armor system** (durability-based pieces shown on a 3D paperdoll whose head
+follows your cursor around the inventory screen).
+
+## Asset Library
+
+`/library.html` — 25 turntable cards (all 9 weapons incl. the STL Ray Gun,
+the car, mystery box, perk machines, The Reforger, the horde, buildables)
+rendered through one scissored WebGL canvas.
 
 ## Testing
 
 ```bash
-npx vite --port 5173 &   # dev server
-node tests/smoke.mjs     # Playwright end-to-end: stairs, lean, inventory, combat
+npx vite --port 5173 &
+node tests/smoke.mjs   # 29 end-to-end checks in a real browser
 ```
 
-The game exposes a deterministic test hook at `/?test=1` (`window.__game`)
-with `simulate(seconds)` so game-logic assertions don't depend on headless
-render speed. `&nozombies=1` disables spawning for movement tests.
+`/?test=1` exposes `window.__game` with a fixed-step `simulate(seconds)` so
+assertions don't depend on headless render speed. `&nozombies=1` disables
+spawning for movement tests.
 
-## Project layout
+## Layout
 
 ```
+design/undead_bunker/   the original design handoff (prototype + README)
+design/digests/         implementation digests extracted from the prototype
+public/models/raygun.stl  the uploaded Ray Gun (decimated)
 src/
-  main.js       game orchestration: waves, drops, pickups, input, loop
-  world.js      night graveyard arena, chapel + stairs, lights, mist
-  physics.js    shared AABB collide-and-slide with step-up (stairs!)
-  player.js     movement, jump, sprint, head-bob, and the Q/E lean rig
-  weapons.js    hitscan weapons, viewmodels, recoil, reload, muzzle flash
-  zombies.js    wave manager, AI steering, limb damage, deaths
-  inventory.js  Minecraft-style inventory + armor slots (T)
-  paperdoll.js  3D character preview with cursor-tracking head
-  effects.js    pooled particles, tracers, casings, decals, damage numbers
-  audio.js      procedural WebAudio sound engine
-  hud.js        DOM HUD
-  items.js      weapon/armor/consumable definitions
+  main.js       orchestration: rounds, economy, F-interactions, loop
+  world.js      the bunker: rooms, walls, windows, doors, perks, trap, camp
+  physics.js    AABB collide-and-slide with headroom-checked step-up
+  zombies.js    articulated rig + toWindow/tearing/vault/hunt AI + pathing
+  weapons.js    9-gun arsenal, beams, projectiles, PaP tint, STL loading
+  mysterybox.js / pap.js / build.js / car.js / crafting.js
+  inventory.js  36 slots + armor + crafting panel   icons.js  3D item icons
+  player.js     movement, lean, jetpack             paperdoll.js
+  hud.js / audio.js / effects.js / items.js / library.js
 ```

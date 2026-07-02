@@ -485,6 +485,9 @@ function doInteract(it, dt) {
       } else audio.deny();
       break;
     case 'papTake': {
+      // never let a full inventory destroy the ★ weapon — leave it on the tray
+      const hasRoom = !inventory.slots[inventory.sel] || inventory.slots.some((s) => !s);
+      if (!hasRoom) { hud.showMsg('Inventory full'); audio.deny(); break; }
       const upgraded = pap.takeOut();
       if (upgraded) {
         icons.refresh(upgraded);
@@ -538,6 +541,7 @@ function handleItemActions() {
       if (mouse.clicked) {
         if (build.valid && (isStation || spend(ECON.buildCost))) {
           const placed = build.place();
+          if (!placed && !isStation) addPoints(ECON.buildCost); // refund if placement failed
           if (placed && isStation) {
             inventory.slots[inventory.sel] = null;
             inventory.renderAll();
@@ -553,7 +557,6 @@ function handleItemActions() {
         }
       }
     } else if (item.id === 'carKeys') {
-      deployCd -= 0;
       if (mouse.clicked && deployCd <= 0) {
         deployCd = 1.2;
         const fwd = new THREE.Vector3(-Math.sin(player.yaw.rotation.y), 0, -Math.cos(player.yaw.rotation.y));
@@ -589,6 +592,7 @@ function start() {
 }
 
 function die() {
+  if (car.driving) car.exit(); // release the chase camera
   player.dead = true;
   state.playing = false;
   document.exitPointerLock?.();

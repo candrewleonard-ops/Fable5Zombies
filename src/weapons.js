@@ -274,20 +274,18 @@ export class WeaponSystem {
 
   _applyPapTint() {
     if (!this.model) return;
-    this.model.traverse((o) => {
-      if (!o.isMesh) return;
-      if (!o.userData.baseEmissive) {
-        o.userData.baseEmissive = o.material.emissive ? o.material.emissive.getHex() : 0;
-        o.userData.baseIntensity = o.material.emissiveIntensity ?? 1;
-      }
-    });
     const pap = !!this.item?.pap;
     this.model.traverse((o) => {
-      if (!o.isMesh || !o.material.emissive) return;
+      if (!o.isMesh || !o.material?.emissive) return;
       if (pap) {
-        o.material = o.material.clone();
+        if (!o.userData.baseMaterial) o.userData.baseMaterial = o.material;
+        o.material = o.userData.baseMaterial.clone();
         o.material.emissive.setHex(0xb04aff);
         o.material.emissiveIntensity = 0.35;
+      } else if (o.userData.baseMaterial) {
+        // restore — models are shared between pap and non-pap items of a key
+        o.material.dispose?.();
+        o.material = o.userData.baseMaterial;
       }
     });
   }

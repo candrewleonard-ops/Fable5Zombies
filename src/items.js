@@ -177,11 +177,11 @@ export const ECON = {
   buildCost: 50,
   buildRefund: 25,
   doorCosts: [750, 1000, 1250, 1500],
-  perks: {
-    tonic:   { name: 'Tough Tonic', cost: 2500, color: 0xd94040, badge: 'T', desc: '+150 max HP' },
-    rapid:   { name: 'Rapid Rounds', cost: 3000, color: 0xe8a33d, badge: 'R', desc: 'Reload ×0.55 • RPM ×1.12' },
-    fleet:   { name: 'Fleet Foot', cost: 2000, color: 0x46c46a, badge: 'F', desc: 'Speed ×1.17' },
-    deadeye: { name: 'Deadeye', cost: 2500, color: 0x6a8de8, badge: 'D', desc: 'Damage ×1.4' },
+  perks: { // colors per design tokens
+    tonic:   { name: 'Tough Tonic', cost: 2500, color: 0x9e1b1b, badge: 'T', desc: '+150 max HP' },
+    rapid:   { name: 'Rapid Rounds', cost: 3000, color: 0xb08414, badge: 'R', desc: 'Reload ×0.55 • RPM ×1.12' },
+    fleet:   { name: 'Fleet Foot', cost: 2000, color: 0x1c5d8a, badge: 'F', desc: 'Speed ×1.17' },
+    deadeye: { name: 'Deadeye', cost: 2500, color: 0x5b2a7a, badge: 'D', desc: 'Damage ×1.4' },
   },
 };
 
