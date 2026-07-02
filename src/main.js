@@ -701,6 +701,10 @@ if (TEST_MODE) {
       for (let t = 0; t < seconds; t += step) updateGame(step);
       renderer.render(scene, camera);
     },
+    simulateDt: (seconds, dt) => { // worst-case low-FPS stepping
+      for (let t = 0; t < seconds; t += dt) updateGame(dt);
+      renderer.render(scene, camera);
+    },
   };
   start();
 }

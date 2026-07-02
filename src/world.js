@@ -336,8 +336,8 @@ export function createWorld(scene) {
     group.rotation.y = ry;
     scene.add(group);
     const s = ry === 0
-      ? solid(x - 0.8, x + 0.8, 0, 2.5, z - 0.18, z + 0.18)
-      : solid(x - 0.18, x + 0.18, 0, 2.5, z - 0.8, z + 0.8);
+      ? solid(x - 0.8, x + 0.8, 0, 2.5, z - 0.3, z + 0.3)
+      : solid(x - 0.3, x + 0.3, 0, 2.5, z - 0.8, z + 0.8);
     doors.push({ group, solid: s, cost, name, unlockRoom, open: false, pos: new THREE.Vector3(x, 1.2, z), anim: 0 });
   }
   mkDoor(-14, 4, Math.PI / 2, ECON.doorCosts[0], 'Armory', 'ARMORY');
@@ -346,15 +346,28 @@ export function createWorld(scene) {
   mkDoor(-20, 10, 0, ECON.doorCosts[3], 'Campsite', 'CAMP');
 
   // ---------- windows / barricades ----------
-  function openingBlocker(axis, fixed, c, b, t) {
-    // movement-only: bullets pass through barricades
-    if (axis === 'x') solid(c - 0.85, c + 0.85, b, t, fixed - 0.15, fixed + 0.15, { shots: false });
-    else solid(fixed - 0.15, fixed + 0.15, b, t, c - 0.85, c + 0.85, { shots: false });
+  // Movement-only barricade blocker (bullets pass through). Built as a PAIR
+  // of one-way slabs: the inner slab always ejects toward the room, the outer
+  // slab always ejects outside — tunneling through a barricade is impossible
+  // regardless of framerate. n = outward normal sign along the wall's axis.
+  function openingBlocker(axis, fixed, c, b, t, n = 1) {
+    const D = 0.45;
+    const innerLo = Math.min(fixed, fixed - n * D);
+    const innerHi = Math.max(fixed, fixed - n * D);
+    const outerLo = Math.min(fixed, fixed + n * D);
+    const outerHi = Math.max(fixed, fixed + n * D);
+    if (axis === 'x') {
+      solid(c - 1.0, c + 1.0, b, t, innerLo, innerHi, { shots: false }).pushZ = -n;
+      solid(c - 1.0, c + 1.0, b, t, outerLo, outerHi, { shots: false }).pushZ = n;
+    } else {
+      solid(innerLo, innerHi, b, t, c - 1.0, c + 1.0, { shots: false }).pushX = -n;
+      solid(outerLo, outerHi, b, t, c - 1.0, c + 1.0, { shots: false }).pushX = n;
+    }
   }
 
   function addWindow(axis, fixed, c, sill, room, n) {
     const w = 1.7, b = sill, t = sill + 1.3;
-    openingBlocker(axis, fixed, c, b, t);
+    openingBlocker(axis, fixed, c, b, t, n);
     const floorY = (b - 0.9 < 1) ? 0 : 3.2;
     const group = new THREE.Group();
     let outer, inner, spawn;
@@ -419,8 +432,11 @@ export function createWorld(scene) {
     group.add(top);
     scene.add(group);
     const boards = [];
+    // even the boardless trap gate is impassable — it reads as an open
+    // doorway but nothing walks through the frame (zombies enter by
+    // vaulting barricades, never through the gate)
+    openingBlocker(ry === 0 ? 'x' : 'z', ry === 0 ? z : x, ry === 0 ? x : z, boardless ? 0.0 : b, boardless ? 2.5 : t, ry === 0 ? nz : nx);
     if (!boardless) {
-      openingBlocker(ry === 0 ? 'x' : 'z', ry === 0 ? z : x, ry === 0 ? x : z, b, t);
       for (let i = 0; i < 6; i++) {
         const board = new THREE.Mesh(new THREE.BoxGeometry(w + 0.35, 0.19, 0.05), MAT.wood);
         const home = new THREE.Vector3((Math.random() - 0.5) * 0.12, 0.35 + i * 0.32, i % 2 ? 0.09 : 0.13);

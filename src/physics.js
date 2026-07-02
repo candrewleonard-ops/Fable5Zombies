@@ -52,6 +52,7 @@ export function groundHeightAt(colliders, x, z, feetY, radius, height = 0) {
 // A box low enough to step onto still counts as a wall if the entity wouldn't
 // fit on top of it (e.g. a knee-high ledge right under a ceiling).
 function isWallFor(colliders, c, x, z, radius, feetY, height) {
+  if (c.maxY <= feetY + EPS) return false;            // entirely below the feet
   const aboveHead = c.minY >= feetY + height - EPS;   // fully above us
   if (aboveHead) return false;
   const stepOk = c.maxY <= feetY + STEP_HEIGHT + EPS; // low enough to step onto
@@ -75,6 +76,14 @@ export function moveEntity(colliders, pos, vel, dt, radius, height, bounds) {
       if (!isWallFor(colliders, c, pos.x, pos.z, radius, pos.y, height)) continue;
       const min = axis === 'x' ? c.minX : c.minZ;
       const max = axis === 'x' ? c.maxX : c.maxZ;
+      // one-way colliders (window barricades) always eject toward their
+      // declared side — tunneling through them is impossible by construction
+      const oneWay = axis === 'x' ? c.pushX : c.pushZ;
+      if (oneWay) {
+        pos[axis] = oneWay > 0 ? max + radius + EPS : min - radius - EPS;
+        res.hitWall = true;
+        continue;
+      }
       const pushLow = pos[axis] + radius - min;   // distance to exit through min face
       const pushHigh = max - (pos[axis] - radius); // distance to exit through max face
       pos[axis] += pushLow < pushHigh ? -(pushLow + EPS) : pushHigh + EPS;
