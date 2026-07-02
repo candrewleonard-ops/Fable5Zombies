@@ -40,7 +40,12 @@ const hud = new HUD();
 const inventory = new Inventory(player, {
   onLoadoutChange: () => { weapons.equip(inventory.selectedWeapon()); hud.setArmor(player.armor, player.maxArmor); },
   onClose: () => { if (state === 'playing' && !TEST_MODE) lockPointer(); },
+  onDropItem: (item) => {
+    spawnPickup(player.pos.clone(), { kind: item.kind, item });
+    hud.toast(`DROPPED ${item.name.toUpperCase()}`);
+  },
 });
+player.onArmorAbsorb = (absorbed) => inventory.absorbArmorDamage(absorbed);
 
 // ---------------- game state ----------------
 let state = 'menu'; // menu | playing | dead
@@ -87,25 +92,30 @@ document.addEventListener('keydown', (e) => {
   switch (e.code) {
     case 'KeyT': // Minecraft-style inventory — on T, not E (E is lean!)
       inventory.toggle();
-      if (inventory.isOpen) document.exitPointerLock?.();
+      if (inventory.isOpen) {
+        weapons.triggerUp();          // don't keep an auto weapon firing
+        paused = false;               // inventory supersedes the pause overlay
+        document.getElementById('pause-hint').classList.add('hidden');
+        document.exitPointerLock?.();
+      }
       break;
     case 'Escape':
       if (inventory.isOpen) inventory.close();
       break;
     case 'Space':
-      if (!inventory.isOpen) player.jump();
+      if (!inventory.isOpen && !paused) player.jump();
       e.preventDefault();
       break;
     case 'KeyR':
-      if (!inventory.isOpen) weapons.startReload();
+      if (!inventory.isOpen && !paused) weapons.startReload();
       break;
     case 'KeyF':
-      if (!inventory.isOpen) {
+      if (!inventory.isOpen && !paused) {
         if (inventory.useMedkitQuick()) hud.toast('+50 HP');
       }
       break;
     case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': case 'Digit5':
-      if (!inventory.isOpen) inventory.selectSlot(Number(e.code.slice(-1)) - 1);
+      if (!inventory.isOpen && !paused) inventory.selectSlot(Number(e.code.slice(-1)) - 1);
       break;
   }
 });
@@ -230,6 +240,7 @@ function startWave(n) {
   wave = n;
   zombies.startWave(n);
   hud.setWave(n);
+  hud.setZombiesLeft(zombies.remaining);
   const blood = n % 5 === 0;
   hud.waveBanner(blood ? `☽ BLOOD MOON — WAVE ${n} ☾` : `WAVE ${n}`, blood);
   audio.waveHorn(blood);
@@ -304,9 +315,13 @@ function startGame() {
   hud.setPoints(0);
   intermission = 0;
   timescale = 1;
+  slowmoTimer = 0;
+  hud.slowmo(false);
+  killstreak.count = 0;
+  killstreak.timer = 0;
 
   startWave(1);
-  if (NO_ZOMBIES) { zombies.toSpawn = 0; hud.setZombiesLeft(0); intermission = 9999; }
+  if (NO_ZOMBIES) { zombies.toSpawn = 0; hud.setZombiesLeft(0); intermission = Infinity; }
   lockPointer();
 }
 
@@ -327,6 +342,7 @@ document.getElementById('restart-btn').addEventListener('click', startGame);
 // ---------------- main loop ----------------
 const clock = new THREE.Clock();
 let groanAmbientTimer = 4;
+let lastHotbarMag = -1;
 
 function updateGame(dt, rawDt) {
   world.update(dt, clock.elapsedTime);
@@ -353,6 +369,11 @@ function updateGame(dt, rawDt) {
     hud.setArmor(player.armor, player.maxArmor);
     hud.setWeapon(weapons.item, weapons.def, weapons.reloading > 0);
     hud.setCrosshairSpread(weapons.crosshairSpread(), player.ads);
+    const magNow = weapons.item ? weapons.item.mag : -1;
+    if (magNow !== lastHotbarMag) {
+      lastHotbarMag = magNow;
+      inventory.renderHUDHotbar(); // keep the hotbar ammo badge live
+    }
 
     // distant ambient groans to keep the dread up
     groanAmbientTimer -= dt;

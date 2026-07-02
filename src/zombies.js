@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { moveEntity } from './physics.js';
+import { moveEntity, raycastColliders } from './physics.js';
 import { audio } from './audio.js';
 
 // Wave-based zombie horde. Zombies share the player's collision code, so the
@@ -142,7 +142,9 @@ export class ZombieManager {
       pos: new THREE.Vector3(sp.x + (Math.random() - 0.5) * 2, 0, sp.z + (Math.random() - 0.5) * 2),
       vel: new THREE.Vector3(),
       radius: 0.34 * def.scale,
-      height: 1.72 * def.scale,
+      // collision height capped below the 2.4m chapel door lintels so brutes
+      // (visual scale 1.45) can duck inside and reach you
+      height: Math.min(2.25, 1.72 * def.scale),
       speed: def.speed * this.speedMult * (0.88 + Math.random() * 0.24),
       state: 'rising',
       stateTime: 0,
@@ -190,12 +192,31 @@ export class ZombieManager {
     return null;
   }
 
+  // Straight line from the zombie's chest to the player's chest, unblocked?
+  _canReachPlayer(z) {
+    const from = z.pos.clone();
+    from.y += z.height * 0.6;
+    const to = this.player.pos.clone();
+    to.y += 1.2;
+    const dir = to.sub(from);
+    const dist = dir.length();
+    if (dist < 0.01) return true;
+    dir.normalize();
+    return raycastColliders(this.world.colliders, from, dir, dist) === Infinity;
+  }
+
+  _dispose(z) {
+    z.group.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
+    for (const m of z.mats) m.dispose();
+    z.eyeMat.dispose();
+  }
+
   damage(z, dmg, part, dir, point) {
     if (z.dead) return;
     z.hp -= dmg;
     z.flinch = Math.min(1, z.flinch + dmg / z.maxHp * 2);
 
-    this.effects.blood(point, dir, part === 'head' ? 20 : 12);
+    this.effects.blood(point, dir, part === 'head' ? 20 : 12, 5, z.pos.y);
     this.effects.damageNumber(point, dmg, part === 'head');
     if (Math.random() < 0.4) {
       this.effects.bloodDecal(z.pos.x + (Math.random() - 0.5), z.pos.z + (Math.random() - 0.5), z.pos.y + 0.02, 0.55);
@@ -220,7 +241,7 @@ export class ZombieManager {
       z.headGone = true;
       const headPos = new THREE.Vector3();
       z.head.getWorldPosition(headPos);
-      this.effects.gib(headPos);
+      this.effects.gib(headPos, z.pos.y);
       z.headPivot.visible = false;
     }
     this.effects.bloodDecal(z.pos.x, z.pos.z, z.pos.y + 0.02, z.def.scale * 1.6);
@@ -260,6 +281,7 @@ export class ZombieManager {
         }
         if (z.stateTime > 2.6) {
           this.scene.remove(z.group);
+          this._dispose(z);
           this.zombies.splice(i, 1);
         }
         continue;
@@ -290,8 +312,8 @@ export class ZombieManager {
       z.attackCd = Math.max(0, z.attackCd - dt);
       if (z.state === 'attack') {
         if (z.stateTime > 0.42) {
-          // strike lands
-          if (distXZ < z.def.reach + 0.35 && Math.abs(dy) < 1.7 && !this.player.dead) {
+          // strike lands (LOS-checked so claws don't reach through walls)
+          if (distXZ < z.def.reach + 0.35 && Math.abs(dy) < 1.7 && !this.player.dead && this._canReachPlayer(z)) {
             this.player.takeDamage(z.def.dmg * (this.bloodMoon ? 1.2 : 1));
             audio.zombieBite();
             if (this.onHurtPlayer) this.onHurtPlayer(z);
@@ -300,7 +322,7 @@ export class ZombieManager {
           z.stateTime = 0;
           z.attackCd = z.def.attackCd;
         }
-      } else if (distXZ < z.def.reach && Math.abs(dy) < 1.6 && z.attackCd <= 0 && !this.player.dead) {
+      } else if (distXZ < z.def.reach && Math.abs(dy) < 1.6 && z.attackCd <= 0 && !this.player.dead && this._canReachPlayer(z)) {
         z.state = 'attack';
         z.stateTime = 0;
       }
@@ -385,7 +407,10 @@ export class ZombieManager {
   }
 
   clear() {
-    for (const z of this.zombies) this.scene.remove(z.group);
+    for (const z of this.zombies) {
+      this.scene.remove(z.group);
+      this._dispose(z);
+    }
     this.zombies = [];
     this.toSpawn = 0;
   }

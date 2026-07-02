@@ -27,12 +27,15 @@ function faceTexture() {
 export class Paperdoll {
   constructor(canvas) {
     this.canvas = canvas;
+    // capture the logical size first — setPixelRatio/setSize mutate the
+    // canvas width/height attributes and would compound on re-reads
+    const W = canvas.width, H = canvas.height;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
-    this.renderer.setSize(canvas.width, canvas.height, false);
+    this.renderer.setSize(W, H, false);
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(36, canvas.width / canvas.height, 0.1, 20);
+    this.camera = new THREE.PerspectiveCamera(36, W / H, 0.1, 20);
     this.camera.position.set(0, 1.05, 3.1);
     this.camera.lookAt(0, 0.95, 0);
 

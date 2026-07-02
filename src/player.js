@@ -196,6 +196,8 @@ export class Player {
       const absorbed = Math.min(this.armor, dmg * 0.65);
       this.armor -= absorbed;
       dmg -= absorbed;
+      // let the inventory chip durability off the equipped pieces
+      if (this.onArmorAbsorb) this.onArmorAbsorb(absorbed);
     }
     this.health -= dmg;
     this.shake = Math.min(0.8, this.shake + 0.35);

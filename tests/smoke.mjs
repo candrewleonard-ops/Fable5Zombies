@@ -143,9 +143,67 @@ await page.keyboard.press('KeyT');
 await page.waitForTimeout(250);
 results.push(['T closes inventory', !(await page.locator('#inventory-screen').isVisible())]);
 
+// --- regression: hugging the stairs' west edge must never teleport the player ---
+const noTele = await page.evaluate(() => {
+  const g = window.__game;
+  g.teleport(6.9, 0.3, 0.0);
+  g.lookAt(Math.PI - 0.25, 0); // up the stairs while drifting into the west hole edge
+  let maxJump = 0;
+  let prev = g.player.pos.clone();
+  g.pressKey('KeyW');
+  for (let i = 0; i < 20; i++) {
+    g.simulate(0.15);
+    maxJump = Math.max(maxJump, Math.hypot(g.player.pos.x - prev.x, g.player.pos.z - prev.z));
+    prev = g.player.pos.clone();
+  }
+  g.releaseKey('KeyW');
+  return { maxJump };
+});
+// max legit distance per 0.15s chunk is ~0.85m at sprint; the old bug snapped ~16m in one frame
+results.push([`no collision teleport at slab edge (max step ${noTele.maxJump.toFixed(2)}m, need < 1.5)`, noTele.maxJump < 1.5]);
+
+// --- regression: armor damage sticks to the piece through unequip/re-equip ---
+const dur = await page.evaluate(async () => {
+  const g = window.__game;
+  const { makeArmorItem } = await import('/src/items.js');
+  g.inventory.reset();
+  const helm = makeArmorItem('helmet', 2); // 25 pts
+  g.inventory.addItem(helm);
+  const gridEls = [...document.querySelectorAll('#inv-grid .slot')];
+  gridEls[g.inventory.grid.indexOf(helm)].dispatchEvent(new MouseEvent('mousedown', { button: 2, bubbles: true }));
+  const before = g.player.armor;
+  g.player.takeDamage(20); // 13 absorbed
+  const damaged = g.player.armor;
+  const armorEl = document.querySelector('.armor-slot[data-armor="helmet"]');
+  armorEl.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true })); // pick up
+  armorEl.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true })); // place back
+  return { before, damaged, after: g.player.armor };
+});
+results.push([`armor durability persists re-equip (${dur.before} -> ${dur.damaged.toFixed(1)} -> ${dur.after.toFixed(1)})`,
+  dur.before === 25 && dur.damaged < 20 && Math.abs(dur.after - dur.damaged) < 0.5]);
+
+// --- regression: opening inventory releases a held auto trigger ---
+const trig = await page.evaluate(async () => {
+  const g = window.__game;
+  const { makeWeaponItem } = await import('/src/items.js');
+  g.inventory.reset();
+  g.inventory.addItem(makeWeaponItem('smg'));
+  g.inventory.selectSlot(0);
+  document.dispatchEvent(new MouseEvent('mousedown', { button: 0 }));
+  const heldBefore = g.weapons.triggerHeld;
+  document.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyT', bubbles: true }));
+  const heldAfter = g.weapons.triggerHeld;
+  const opened = g.inventory.isOpen;
+  document.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyT', bubbles: true }));
+  return { heldBefore, heldAfter, opened };
+});
+results.push(['inventory-open releases auto trigger', trig.heldBefore && !trig.heldAfter && trig.opened]);
+
 // --- combat: zombies spawn, take damage, die, drop loot ---
 await page.goto(BASE + '/?test=1', { waitUntil: 'networkidle' });
 await page.waitForTimeout(1200);
+const pill = await page.evaluate(() => document.getElementById('zombies-left').textContent);
+results.push([`zombies-left pill live at wave start (${pill})`, Number(pill) > 0]);
 const combat = await page.evaluate(() => {
   const g = window.__game;
   g.teleport(0, 0.3, 12);

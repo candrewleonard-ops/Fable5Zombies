@@ -65,6 +65,7 @@ export function makeArmorItem(slot, tier) {
     name: `${t.label} ${slot === 'chest' ? 'Chestplate' : slot[0].toUpperCase() + slot.slice(1)}`,
     icon: ARMOR_ICONS[slot], stack: 1, count: 1, rarity: tier,
     armor: ARMOR_POINTS[slot][tier],
+    remaining: ARMOR_POINTS[slot][tier], // durability — damage sticks to the piece
     desc: `+${ARMOR_POINTS[slot][tier]} armor`,
   };
 }

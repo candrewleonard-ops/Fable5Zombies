@@ -60,6 +60,8 @@ export class Inventory {
     for (const el of document.querySelectorAll('.armor-slot')) {
       el.dataset.container = 'armor';
       el.dataset.index = el.dataset.armor;
+      // remember the ghost glyph — innerHTML rewrites destroy the original span
+      el.dataset.ghost = el.querySelector('.slot-ghost')?.textContent || '';
     }
   }
 
@@ -104,8 +106,6 @@ export class Inventory {
 
     if (!this.carried) {
       if (!cur) return;
-      // picking up equipped armor removes its protection
-      if (container === 'armor') this._applyArmorDelta(-cur.armor);
       this.carried = cur;
       this._set(container, index, null);
     } else {
@@ -120,9 +120,7 @@ export class Inventory {
         this.carried.count -= move;
         if (this.carried.count <= 0) this.carried = null;
       } else {
-        if (cur && container === 'armor') this._applyArmorDelta(-cur.armor);
         this._set(container, index, this.carried);
-        if (container === 'armor') this._applyArmorDelta(this.carried.armor);
         this.carried = cur; // swap (or null)
       }
       audio.equip();
@@ -136,8 +134,6 @@ export class Inventory {
     const prev = this.armor[slot];
     this.armor[slot] = item;
     this._set(container, index, prev || null);
-    if (prev) this._applyArmorDelta(-prev.armor);
-    this._applyArmorDelta(item.armor);
     audio.equip();
     this._afterChange();
   }
@@ -150,10 +146,32 @@ export class Inventory {
     this._afterChange();
   }
 
-  _applyArmorDelta(delta) {
-    const max = this.totalArmorPoints();
+  // Armor is durability-based: damage sticks to the equipped pieces, so
+  // unequipping and re-equipping never repairs anything.
+  _recomputeArmor() {
+    let cur = 0, max = 0;
+    for (const s of ARMOR_SLOTS) {
+      const it = this.armor[s];
+      if (!it) continue;
+      if (it.remaining === undefined) it.remaining = it.armor;
+      cur += it.remaining;
+      max += it.armor;
+    }
+    this.player.armor = cur;
     this.player.maxArmor = max;
-    this.player.armor = Math.max(0, Math.min(max, this.player.armor + delta));
+  }
+
+  // Called from the player when armor absorbs a hit: spread the damage over
+  // the equipped pieces proportionally to their remaining durability.
+  absorbArmorDamage(absorbed) {
+    const items = ARMOR_SLOTS.map((s) => this.armor[s]).filter(Boolean);
+    const total = items.reduce((n, it) => n + (it.remaining ?? it.armor), 0);
+    if (total <= 0) return;
+    for (const it of items) {
+      if (it.remaining === undefined) it.remaining = it.armor;
+      it.remaining = Math.max(0, it.remaining - absorbed * (it.remaining / total));
+    }
+    this._recomputeArmor();
   }
 
   totalArmorPoints() {
@@ -161,6 +179,8 @@ export class Inventory {
   }
 
   _afterChange() {
+    this._recomputeArmor();
+    this.tooltipEl.classList.add('hidden'); // never show a stale tooltip
     this.renderAll();
     this.paperdoll.setArmor(this.armor);
     if (this.cb.onLoadoutChange) this.cb.onLoadoutChange();
@@ -234,11 +254,18 @@ export class Inventory {
 
   close() {
     this.openFlag = false;
-    // drop carried item back into any free slot
+    // return the carried item somewhere — never silently destroy it
     if (this.carried) {
       const item = this.carried;
       this.carried = null;
-      this.addItem(item);
+      if (!this.addItem(item)) {
+        if (item.kind === 'armor' && !this.armor[item.armorSlot]) {
+          this.armor[item.armorSlot] = item;
+          this._afterChange();
+        } else if (this.cb.onDropItem) {
+          this.cb.onDropItem(item); // drop it at the player's feet as a pickup
+        }
+      }
     }
     this.screen.classList.add('hidden');
     this.tooltipEl.classList.add('hidden');
@@ -272,11 +299,11 @@ export class Inventory {
     const slots = this.screen.querySelectorAll('.slot');
     for (const el of slots) {
       const item = this._get(el.dataset.container, el.dataset.index);
-      const ghost = el.querySelector('.slot-ghost');
-      el.innerHTML = this._slotHTML(item);
+      el.innerHTML = item
+        ? this._slotHTML(item)
+        : (el.dataset.ghost ? `<span class="slot-ghost">${el.dataset.ghost}</span>` : '');
       el.classList.remove('item-rarity-1', 'item-rarity-2', 'item-rarity-3');
       if (item?.rarity) el.classList.add(`item-rarity-${item.rarity}`);
-      if (!item && ghost) el.appendChild(ghost);
     }
     // carried ghost
     if (this.carried) {
@@ -307,7 +334,9 @@ export class Inventory {
       `<div class="tt-name" style="color:${tierColor}">${item.name}</div>` +
       `<div class="tt-desc">${item.desc || ''}</div>` +
       (item.kind === 'weapon' && item.mag !== undefined
-        ? `<div class="tt-stat">${item.mag} in mag • ${item.reserve} reserve</div>` : '');
+        ? `<div class="tt-stat">${item.mag} in mag • ${item.reserve} reserve</div>` : '') +
+      (item.kind === 'armor'
+        ? `<div class="tt-stat">${Math.ceil(item.remaining ?? item.armor)}/${item.armor} durability</div>` : '');
     this.tooltipEl.classList.remove('hidden');
     this.tooltipEl.style.left = Math.min(window.innerWidth - 260, e.clientX + 16) + 'px';
     this.tooltipEl.style.top = (e.clientY + 14) + 'px';
@@ -319,7 +348,7 @@ export class Inventory {
     for (const s of ARMOR_SLOTS) this.armor[s] = null;
     this.carried = null;
     this.selected = 0;
-    this.player.maxArmor = 0;
+    this._recomputeArmor();
     this.paperdoll.setArmor(this.armor);
     this.renderAll();
   }

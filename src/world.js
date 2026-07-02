@@ -174,7 +174,7 @@ export function createWorld(scene) {
   // south wall (z = 7) with door gap in the middle (gap x: -1.5..1.5)
   box(7.5, FLOOR2, wallT, stoneMat, -5.25, FLOOR2 / 2, 7);
   box(7.5, FLOOR2, wallT, stoneMat, 5.25, FLOOR2 / 2, 7);
-  box(3, 0.8, wallT, stoneMat, 0, FLOOR2 - 0.4, 7); // lintel above door
+  box(3, 0.5, wallT, stoneMat, 0, FLOOR2 - 0.25, 7); // lintel above door (2.7m clearance — brutes fit)
   // north wall (z = -7) with window gaps
   box(18, 1.2, wallT, stoneMat, 0, 0.6, -7);
   box(18, 0.9, wallT, stoneMat, 0, FLOOR2 - 0.45, -7);
@@ -186,7 +186,7 @@ export function createWorld(scene) {
   // east wall (x = 9) with door gap (z: -1.5..1.5)
   box(wallT, FLOOR2, 5.5, stoneMat, 9, FLOOR2 / 2, -4.25);
   box(wallT, FLOOR2, 5.5, stoneMat, 9, FLOOR2 / 2, 4.25);
-  box(wallT, 0.8, 3, stoneMat, 9, FLOOR2 - 0.4, 0);
+  box(wallT, 0.5, 3, stoneMat, 9, FLOOR2 - 0.25, 0);
 
   // second floor slab with a stair hole above the staircase (x: 6.3..8.9, z: 1.7..6.2)
   box(15.3, 0.25, 14, woodMat, -1.35, FLOOR2, 0);          // everything west of the hole
@@ -256,7 +256,8 @@ export function createWorld(scene) {
     g.rotation.y = rand() * Math.PI * 2;
     g.rotation.z = (rand() - 0.5) * 0.16;
     scene.add(g);
-    colliders.push(boxCollider(x, 0.6, z, 0.8, 1.2, 0.5));
+    // square footprint sized to cover the stone at any yaw rotation
+    colliders.push(boxCollider(x, 0.85, z, 0.9, 1.7, 0.9));
     if (gravePositions.length % 2 === 0) spawnPoints.push(new THREE.Vector3(x, 0, z));
   }
 

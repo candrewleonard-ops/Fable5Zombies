@@ -136,23 +136,23 @@ export class Effects {
     this.aAlpha.array[i] = 1;
   }
 
-  blood(pos, dir, count = 14, speed = 5) {
+  blood(pos, dir, count = 14, speed = 5, floor = 0) {
     const c1 = new THREE.Color(0x9e0b0f), c2 = new THREE.Color(0x5c0507);
     for (let i = 0; i < count; i++) {
       const v = dir.clone()
         .add(new THREE.Vector3((Math.random() - 0.5) * 1.6, Math.random() * 1.1, (Math.random() - 0.5) * 1.6))
         .normalize().multiplyScalar(speed * (0.35 + Math.random() * 0.9));
       this._emit(pos, v, 0.4 + Math.random() * 0.5, Math.random() < 0.5 ? c1 : c2,
-        0.05 + Math.random() * 0.09, 14, 1.2);
+        0.05 + Math.random() * 0.09, 14, 1.2, floor);
     }
   }
 
-  gib(pos) { // headshot pop
+  gib(pos, floor = 0) { // headshot pop
     const c = new THREE.Color(0xb01216);
     for (let i = 0; i < 34; i++) {
       const v = new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 1.6, (Math.random() - 0.5) * 2)
         .normalize().multiplyScalar(3 + Math.random() * 6);
-      this._emit(pos, v, 0.5 + Math.random() * 0.7, c, 0.06 + Math.random() * 0.12, 15, 1.0);
+      this._emit(pos, v, 0.5 + Math.random() * 0.7, c, 0.06 + Math.random() * 0.12, 15, 1.0, floor);
     }
   }
 

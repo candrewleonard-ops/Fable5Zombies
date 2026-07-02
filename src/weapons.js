@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { WEAPONS } from './items.js';
-import { raycastColliders } from './physics.js';
+import { raycastColliders, groundHeightAt } from './physics.js';
 import { audio } from './audio.js';
 
 // Viewmodel + hitscan shooting. Ammo lives ON the inventory item
@@ -183,9 +183,10 @@ export class WeaponSystem {
     this.flashSprite.material.rotation = Math.random() * Math.PI * 2;
     this.effects.smoke(muzzleWorld, 2);
 
-    // casing
+    // casing — floor is the actual surface below, not the (possibly airborne) player
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion()));
-    this.effects.casing(muzzleWorld, right, this.player.pos.y);
+    const casingFloor = groundHeightAt(this.world.colliders, muzzleWorld.x, muzzleWorld.z, this.player.pos.y, 0.3);
+    this.effects.casing(muzzleWorld, right, casingFloor);
 
     // hitscan per pellet
     const origin = this.player.eyePosition();
