@@ -160,6 +160,30 @@ function buildDropModel(mat) {
   return g;
 }
 
+function buildLootModel(kind, colorHex) {
+  const g = new THREE.Group();
+  if (kind === 'ammo') {
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.18, 0.2),
+      new THREE.MeshStandardMaterial({ color: 0x2e3a26, roughness: 0.7 }));
+    crate.position.y = 0.09;
+    g.add(crate);
+    const band = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.05, 0.22),
+      new THREE.MeshStandardMaterial({ color: 0xc8a742, metalness: 0.8, roughness: 0.3 }));
+    band.position.y = 0.1;
+    g.add(band);
+  } else {
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.26, 0.26),
+      new THREE.MeshStandardMaterial({ color: colorHex, metalness: 0.6, roughness: 0.35, emissive: colorHex, emissiveIntensity: 0.25 }));
+    box.position.y = 0.15;
+    box.rotation.y = 0.6;
+    g.add(box);
+  }
+  const glow = new THREE.PointLight(colorHex, 1.4, 2.6, 2);
+  glow.position.y = 0.4;
+  g.add(glow);
+  return g;
+}
+
 export class Drops {
   constructor(scene, player, inventory) {
     this.scene = scene;
@@ -167,6 +191,8 @@ export class Drops {
     this.inventory = inventory;
     this.drops = [];
     this.onPickup = null; // (mat) => toast
+    this.onAmmo = null;   // () => add reserve to current weapon; return true if taken
+    this.onItem = null;   // (item) => toast
   }
 
   spawn(pos) {
@@ -176,6 +202,22 @@ export class Drops {
     group.position.set(pos.x, pos.y, pos.z);
     this.scene.add(group);
     this.drops.push({ group, mat, t: 0, life: 45 });
+  }
+
+  spawnAmmo(pos) {
+    if (this.drops.length >= 24) return;
+    const group = buildLootModel('ammo', 0xffd27f);
+    group.position.copy(pos);
+    this.scene.add(group);
+    this.drops.push({ group, ammo: true, t: 0, life: 45 });
+  }
+
+  spawnItem(pos, item, colorHex = 0x9dff57) {
+    if (this.drops.length >= 26) return;
+    const group = buildLootModel('item', colorHex);
+    group.position.copy(pos);
+    this.scene.add(group);
+    this.drops.push({ group, item, t: 0, life: 60 });
   }
 
   update(dt) {
@@ -198,9 +240,18 @@ export class Drops {
         d.group.position.z += dz * pull;
       }
       if (dist < 0.7 && !this.player.dead) {
-        if (this.inventory.addItem(makeMaterial(d.mat, 1))) {
+        let taken = false;
+        if (d.ammo) {
+          taken = this.onAmmo ? this.onAmmo() : false;
+        } else if (d.item) {
+          taken = this.inventory.addItem(d.item);
+          if (taken && this.onItem) this.onItem(d.item);
+        } else {
+          taken = this.inventory.addItem(makeMaterial(d.mat, 1));
+          if (taken && this.onPickup) this.onPickup(d.mat);
+        }
+        if (taken) {
           audio.pickup();
-          if (this.onPickup) this.onPickup(d.mat);
           this._remove(i);
           continue;
         }

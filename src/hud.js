@@ -15,6 +15,8 @@ export class HUD {
       armorWrap: $('armorWrap'), armorFill: $('armorFill'),
       prompt: $('prompt'), msg: $('msg'), waveBanner: $('waveBanner'),
       bloodOverlay: $('bloodOverlay'), hitmarker: $('hitmarker'),
+      healthFill: $('healthFill'), healthNum: $('healthNum'),
+      bossBar: $('bossBar'), bossFill: $('bossFill'), bossName: $('bossName'),
     };
     this._msgTimer = null;
     this._hitTimer = null;
@@ -26,6 +28,19 @@ export class HUD {
   hide() { this.el.hud.style.display = 'none'; }
 
   setRound(r) { this.el.round.textContent = r; }
+
+  setHealth(hp, maxHp) {
+    const pct = Math.max(0, hp / maxHp * 100);
+    this.el.healthFill.style.width = pct + '%';
+    this.el.healthFill.classList.toggle('low', hp < maxHp * 0.3);
+    this.el.healthNum.textContent = Math.ceil(hp);
+  }
+
+  bossHUD(boss) {
+    if (!boss || boss.dead) { this.el.bossBar.style.display = 'none'; return; }
+    this.el.bossBar.style.display = 'block';
+    this.el.bossFill.style.width = Math.max(0, boss.hp / boss.maxHp * 100) + '%';
+  }
 
   banner(text) {
     const el = this.el.waveBanner;

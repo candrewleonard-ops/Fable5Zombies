@@ -13,7 +13,7 @@ import { MysteryBox } from './mysterybox.js';
 import { PackAPunch } from './pap.js';
 import { BuildSystem } from './build.js';
 import { CarSys } from './car.js';
-import { WEAPONS, weaponDef, ECON, ROUND, makeWeaponItem, makeTool } from './items.js';
+import { WEAPONS, weaponDef, ECON, ROUND, makeWeaponItem, makeTool, makeArmorItem } from './items.js';
 
 const params = new URLSearchParams(location.search);
 const TEST_MODE = params.has('test');
@@ -51,6 +51,7 @@ const car = new CarSys(scene, world, player, camera);
 const state = {
   playing: false, paused: false, round: 0, points: ECON.startPoints,
   kills: 0, toSpawn: 0, spawnT: 2, intermission: 0, time: 0,
+  boss: null,
 };
 
 const keys = new Set();
@@ -137,8 +138,51 @@ zombies.onKill = (z, headshot) => {
   state.kills++;
   addPoints(headshot ? ECON.headshotKillBonus : ECON.killBonus);
   if (headshot) hud.hitmarker(true);
-  if (Math.random() < 0.12) drops.spawn(z.pos.clone());
+
+  const at = z.pos.clone();
+  if (z.boss) {
+    state.boss = null;
+    hud.bossHUD(null);
+    addPoints(1500);
+    hud.banner('Abomination slain');
+    drops.spawnItem(at.clone(), makeTool('raygunPart'), 0xff4a3a);
+    drops.spawnItem(at.clone().add(new THREE.Vector3(0.7, 0, 0.3)), makeArmorItem(['helmet', 'chest', 'legs', 'boots'][Math.random() * 4 | 0], 3), 0xaa5aff);
+    return;
+  }
+
+  // blood moon: the LAST zombie of the round drops a Ray Gun part
+  if (state.bloodMoon && state.toSpawn === 0 && zombies.aliveCount === 0) {
+    drops.spawnItem(at.clone(), makeTool('raygunPart'), 0xff4a3a);
+    hud.showMsg('The blood moon yields a Ray Gun part…');
+  }
+
+  // armored zombies are walking loot pinatas
+  if (z.armorTier && Math.random() < 0.2) {
+    drops.spawnItem(at.clone(), makeArmorItem(['helmet', 'chest', 'legs', 'boots'][Math.random() * 4 | 0], z.armorTier), 0xaabed2);
+  }
+
+  // loot table: materials 12%, ammo 22%, armor 1%, weapon 0.5%
+  const r = Math.random();
+  if (r < 0.12) drops.spawn(at);
+  else if (r < 0.34) drops.spawnAmmo(at);
+  else if (r < 0.35) {
+    const tier = state.round >= 6 ? (Math.random() < 0.3 ? 3 : 2) : (Math.random() < 0.5 ? 2 : 1);
+    drops.spawnItem(at, makeArmorItem(['helmet', 'chest', 'legs', 'boots'][Math.random() * 4 | 0], tier), 0xaabed2);
+  } else if (r < 0.355) {
+    const pool = ['smg', 'trench', 'stg', 'ppsh', 'revolver'];
+    drops.spawnItem(at, makeWeaponItem(pool[Math.random() * pool.length | 0]), 0xf7d774);
+  }
 };
+drops.onAmmo = () => {
+  const cur = weapons.item;
+  if (!cur) return false;
+  const amount = weaponDef(cur).mag * 2;
+  weapons.addReserve(amount);
+  hud.showMsg(`+${amount} ammo`);
+  updateAmmoHUD();
+  return true;
+};
+drops.onItem = (item) => hud.showMsg(`${item.name} picked up`);
 zombies.onHurtPlayer = () => hud.damageFlash();
 zombies.onBoards = () => {};
 drops.onPickup = (mat) => hud.showMsg(`+ ${mat[0].toUpperCase() + mat.slice(1)}`);
@@ -169,18 +213,31 @@ function tryLock() {
   } catch { enableNoLock(); }
 }
 function enableNoLock() {
+  // temporary fallback only — every click keeps retrying for a real lock
   noLock = true;
   canvas.style.cursor = 'none';
-  if (state.playing) hud.showMsg('Mouse-look active · Esc to pause');
+  if (state.playing) hud.showMsg('Click to capture the mouse');
 }
 document.addEventListener('pointerlockchange', () => {
-  if (noLock || inventory.isOpen) return;
   const locked = document.pointerLockElement === canvas;
+  if (locked) {
+    noLock = false; // real capture achieved — leave fallback mode for good
+    canvas.style.cursor = 'default';
+  }
+  if (noLock || inventory.isOpen) return;
   if (state.playing && !player.dead) {
     state.paused = !locked;
     document.getElementById('pauseOverlay').style.display = locked ? 'none' : 'flex';
   }
 });
+// any click on the game while unlocked retries the capture (fixes the mouse
+// escaping the window edge when the first lock attempt failed or was lost)
+document.addEventListener('mousedown', () => {
+  if (state.playing && !player.dead && !inventory.isOpen && !TEST_MODE &&
+      document.pointerLockElement !== canvas) {
+    tryLock();
+  }
+}, true);
 document.getElementById('pauseOverlay').addEventListener('click', () => {
   if (!noLock) tryLock();
   else { state.paused = false; document.getElementById('pauseOverlay').style.display = 'none'; }
@@ -266,6 +323,7 @@ function startRound(r) {
   state.toSpawn = NO_ZOMBIES ? 0 : ROUND.count(r);
   state.spawnT = 1.2;
   hud.setRound(r);
+  if (r % 10 === 0 && r > 0) setTimeout(() => { if (state.playing) spawnBoss(); }, 4000);
   const blood = r % 5 === 0 && r > 0;
   hud.banner(blood ? `☽ Blood Moon — Round ${r} ☾` : `Round ${r}`);
   world.moonLight.color.setHex(blood ? 0xd86a5a : 0x9db4dd);
@@ -294,7 +352,30 @@ function spawnZombie() {
     if (roll <= 0) { win = candidates[i]; break; }
   }
   state.toSpawn--;
-  zombies.spawnAt(win, { hp: ROUND.hp(state.round), speed: pickSpeed(state.round), bloodMoon: state.bloodMoon });
+  const opts = { hp: ROUND.hp(state.round), speed: pickSpeed(state.round), bloodMoon: state.bloodMoon };
+  // randomly armored zombies from round 3 (~6%), random tier, tougher
+  if (state.round >= 3 && Math.random() < 0.06) {
+    const tier = 1 + Math.floor(Math.random() * 3);
+    opts.armorTier = tier;
+    opts.armorColor = [0x8a6a42, 0x9aa7b4, 0x7a44d0][tier - 1];
+    opts.hp *= 1.7;
+  }
+  zombies.spawnAt(win, opts);
+}
+
+function spawnBoss() {
+  const candidates = world.windows.filter((w) => world.rooms[w.room]?.unlocked && !w.gate);
+  const win = candidates[Math.floor(Math.random() * candidates.length)];
+  if (!win) return;
+  const boss = zombies.spawnAt(win, {
+    hp: ROUND.hp(state.round) * 22,
+    speed: 2.3,
+    bloodMoon: state.bloodMoon,
+    boss: true,
+  });
+  state.boss = boss;
+  hud.banner('☠ THE ABOMINATION ☠');
+  audio.bossRoar();
 }
 
 function updateRound(dt) {
@@ -450,7 +531,7 @@ function doInteract(it, dt) {
         if (it.pm.key === 'tonic') { player.maxHealth = 250; player.health = 250; }
         audio.perkJingle();
         hud.perkHUD(player.perks);
-        hud.showMsg(`${it.pm.name} acquired`);
+        hud.showMsg(`${it.pm.name} — ${ECON.perks[it.pm.key].desc}`);
       } else audio.deny();
       break;
     }
@@ -588,6 +669,8 @@ function start() {
   onSelectionChanged();
   hud.setPoints(state.points);
   hud.perkHUD(player.perks);
+  hud.setHealth(player.health, player.maxHealth);
+  hud.bossHUD(null);
   setTimeout(() => startRound(1), 900);
 }
 
@@ -617,11 +700,24 @@ function updateGame(dt) {
       build.update();
       handleItemActions();
 
-      // F interact scan
+      // F: shove takes priority when a zombie is breathing down your neck
+      const threat = zombies.zombies.some((z) =>
+        !z.dead && z.alive && z.state === 'hunt' &&
+        Math.abs(z.pos.y - player.pos.y) < 1.6 &&
+        Math.hypot(z.pos.x - player.pos.x, z.pos.z - player.pos.z) < 1.9);
       const it = nearestInteract();
-      hud.setPrompt(it ? it.prompt : null);
-      if (it) doInteract(it, dt);
-      else repairT = 0;
+      if (threat && fEdge && weapons.meleeCd <= 0) {
+        weapons.melee(zombies);
+        fEdge = false;
+        hud.setPrompt(it ? it.prompt : null);
+      } else {
+        hud.setPrompt(it ? it.prompt : (threat ? '<b>F</b> — Shove' : null));
+        if (it) doInteract(it, dt);
+        else {
+          repairT = 0;
+          if (fEdge && weapons.meleeCd <= 0) weapons.melee(zombies); // bash at will
+        }
+      }
       fEdge = false;
     } else {
       // driving: exit prompt + F
@@ -642,6 +738,11 @@ function updateGame(dt) {
     box.update(dt, state.time);
     weapons.update(dt, zombies, mouseDelta);
 
+    if (state.boss && !state.boss.dead) {
+      if (state.boss.hp < state.boss.maxHp * 0.3) state.boss.speed = 3.2;
+      hud.bossHUD(state.boss);
+    }
+    hud.setHealth(player.health, player.maxHealth);
     hud.updateHealthFx(player.health, player.maxHealth, dt);
     hud.updateFuel(player.jetpack, player.jetFuel);
     hud.updateArmor(player.armor, player.maxArmor);

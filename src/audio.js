@@ -213,6 +213,17 @@ class AudioEngine {
     this._tone({ type: 'sine', from: 90, to: 30, dur: 0.55, peak: 0.5 });
   }
 
+  melee() {
+    this._noiseBurst({ peak: 0.3, decay: 0.12, freq: 1200, filterType: 'bandpass', q: 0.8, rate: 1.4 });
+    this._tone({ type: 'sine', from: 300, to: 120, dur: 0.12, peak: 0.18 });
+  }
+
+  bossRoar() {
+    this._tone({ type: 'sawtooth', from: 70, to: 38, dur: 1.4, peak: 0.5 });
+    this._tone({ type: 'sawtooth', from: 105, to: 55, dur: 1.2, peak: 0.3, delay: 0.1 });
+    this._noiseBurst({ peak: 0.3, decay: 1.0, freq: 250, q: 0.6 });
+  }
+
   jet() { this._noiseBurst({ peak: 0.12, decay: 0.14, freq: 900, filterType: 'bandpass', q: 0.7 }); }
 
   dryFire() { this._tone({ type: 'square', from: 900, to: 700, dur: 0.03, peak: 0.12 }); }

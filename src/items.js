@@ -52,6 +52,18 @@ export const WEAPONS = {
     spread: 0.004, adsSpread: 0.002, range: 90, recoil: 0.1, kick: 0.16,
     tracer: 0x86c8ff, sound: 'arc', source: 'box', adsFov: 55,
   },
+  revolver: {
+    name: 'West Revolver', dmg: 180, headMult: 3.0, mag: 5, reserve: 40,
+    rpm: 96, auto: false, reload: 2.4, pellets: 1,
+    spread: 0.006, adsSpread: 0.001, range: 90, recoil: 0.11, kick: 0.16,
+    tracer: 0xff5c5c, sound: 'revolver', source: 'box', adsFov: 50,
+  },
+  ppsh: {
+    name: 'PPSh-41', dmg: 28, headMult: 2.0, mag: 71, reserve: 284,
+    rpm: 900, auto: true, reload: 3.0, pellets: 1,
+    spread: 0.034, adsSpread: 0.014, range: 42, recoil: 0.013, kick: 0.028,
+    tracer: 0xffc36a, sound: 'smg', source: 'box', adsFov: 58,
+  },
   raygun: {
     name: 'Ray Gun', dmg: 1000, headMult: 1.0, mag: 20, reserve: 160,
     rpm: 180, auto: false, reload: 3.0, pellets: 1,
@@ -78,10 +90,10 @@ export function weaponDef(item) {
   return item.pap ? papStats(base) : base;
 }
 
-export const BOX_POOL = ['mg42', 'stg', 'laser', 'arc', 'raygun', 'smg', 'trench', 'kar98'];
+export const BOX_POOL = ['mg42', 'stg', 'laser', 'arc', 'raygun', 'smg', 'trench', 'kar98', 'revolver', 'ppsh'];
 export const CRAFT_POOLS = {
   shotgun: ['trench'],
-  ar: ['stg', 'smg', 'mg42'],
+  ar: ['stg', 'smg', 'mg42', 'ppsh'],
   wonder: ['arc', 'laser', 'raygun'],
 };
 
@@ -131,8 +143,9 @@ export function makeTool(key) {
     anvil:       { name: 'Anvil', icon: '⚒', icon3d: 'tool:anvil', desc: 'Place with LMB • F to forge jet fuel', build: 'anvil' },
     jetpack:     { name: 'Jetpack', icon: '🚀', icon3d: 'tool:jetpack', desc: 'Equips automatically. Hold SPACE to fly.' },
     jetfuel:     { name: 'Jet Fuel', icon: '🛢', icon3d: 'tool:jetfuel', desc: '+50% jetpack fuel. Used on pickup.' },
+    raygunPart:  { name: 'Ray Gun Part', icon: '⚙', icon3d: 'tool:raygunPart', desc: 'Dropped by the last blood-moon zombie. Craft 3 into a Ray Gun.' },
   };
-  return { id: key, kind: 'tool', ...defs[key], stack: key === 'jetfuel' ? 8 : 1, count: 1 };
+  return { id: key, kind: 'tool', ...defs[key], stack: key === 'jetfuel' ? 8 : key === 'raygunPart' ? 3 : 1, count: 1 };
 }
 
 export function makeArmorItem(slot, tier) {
@@ -161,6 +174,7 @@ export const RECIPES = [
   { key: 'randWonder', name: 'Random Wonder Weapon', grid: '2x2', mats: { wand: 1, coal: 3 }, pool: 'wonder', fx: 'wonder', desc: 'wand + 3 coal' },
   { key: 'anvil', name: 'Anvil', grid: '3x3', mats: { wood: 4, coal: 4 }, result: () => makeTool('anvil'), desc: '4 wood + 4 coal' },
   { key: 'jetpack', name: 'Jetpack', grid: '3x3', mats: { wand: 1, wood: 4, coal: 4 }, result: () => makeTool('jetpack'), desc: 'wand + 4 wood + 4 coal' },
+  { key: 'raygunCraft', name: 'Ray Gun', grid: '2x2', mats: { raygunPart: 3 }, result: () => makeWeaponItem('raygun'), desc: '3 blood-moon parts' },
   { key: 'jetfuel', name: 'Jet Fuel', grid: 'anvil', mats: { coal: 3 }, result: () => makeTool('jetfuel'), desc: '3 coal' },
 ];
 

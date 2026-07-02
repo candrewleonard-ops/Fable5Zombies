@@ -44,6 +44,33 @@ html, body {
   color: #a31111;
   text-shadow: 0 0 18px rgba(163, 17, 17, 0.55), 0 2px 2px #000;
 }
+#healthWrap {
+  position: absolute; left: 34px; bottom: 152px;
+  width: 240px; height: 16px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(232, 223, 207, 0.25);
+}
+#healthFill {
+  height: 100%; width: 100%;
+  background: linear-gradient(90deg, #3f7d34, #7fce4f);
+  transition: width 0.15s;
+}
+#healthFill.low { background: linear-gradient(90deg, #8a1111, #ff5a4d); }
+#healthNum {
+  position: absolute; right: -46px; top: -3px;
+  font-size: 19px; font-weight: 700; color: #e8dfcf; text-shadow: 0 1px 2px #000;
+}
+#bossBar {
+  position: absolute; top: 56px; left: 50%; transform: translateX(-50%);
+  width: 420px; text-align: center; display: none;
+}
+#bossName {
+  font-family: 'Pirata One', serif; font-size: 22px; letter-spacing: 4px;
+  color: #ff5a4d; text-shadow: 0 0 14px rgba(184, 20, 20, 0.7);
+}
+#bossTrack { height: 10px; background: rgba(0,0,0,0.6); border: 1px solid rgba(184,20,20,0.6); }
+#bossFill { height: 100%; width: 100%; background: linear-gradient(90deg, #7a0d0d, #ff3b2a); transition: width 0.15s; }
+
 #roundLabel {
   position: absolute; left: 36px; bottom: 118px;
   font-size: 17px; letter-spacing: 4px; color: #c9beae;
@@ -192,11 +219,6 @@ html, body {
 #invInner h4 { font-size: 15px; letter-spacing: 3px; color: #9a917f; margin: 14px 0 8px; }
 #invPaperRow { display: flex; gap: 10px; margin-bottom: 14px; }
 #armorCol { display: flex; flex-direction: column; gap: 5px; justify-content: center; }
-#paperdoll-wrap {
-  background: radial-gradient(ellipse at 50% 30%, rgba(60, 66, 80, 0.4), rgba(0, 0, 0, 0.6));
-  border: 1px solid #35353b;
-}
-#paperdoll { display: block; width: 180px; height: 244px; cursor: grab; }
 #statsCol { display: flex; flex-direction: column; gap: 7px; justify-content: center; min-width: 104px; }
 .stat-row {
   display: flex; justify-content: space-between; gap: 12px;

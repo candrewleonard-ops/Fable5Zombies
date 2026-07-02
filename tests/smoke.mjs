@@ -288,13 +288,6 @@ push(`jetpack flies (y=${jet.y.toFixed(2)}, fuel=${jet.fuel.toFixed(0)})`, jet.e
 await page.keyboard.press('KeyT');
 await page.waitForTimeout(400);
 push('T opens inventory', await page.evaluate(() => window.__game.inventory.isOpen));
-await page.mouse.move(300, 200);
-await page.waitForTimeout(300);
-const headA = await page.evaluate(() => window.__game.inventory.paperdoll.headPivot.rotation.y);
-await page.mouse.move(1100, 620);
-await page.waitForTimeout(500);
-const headB = await page.evaluate(() => window.__game.inventory.paperdoll.headPivot.rotation.y);
-push(`paperdoll head tracks cursor (${headA.toFixed(2)}→${headB.toFixed(2)})`, Math.abs(headB - headA) > 0.2);
 const armorOk = await page.evaluate(async () => {
   const g = window.__game;
   const { makeArmorItem } = await import('/src/items.js');
@@ -310,6 +303,30 @@ push(`right-click equips armor (${armorOk.pts} pts)`, armorOk.equipped && armorO
 await page.screenshot({ path: `${SHOT_DIR}/inventory.png` });
 await page.keyboard.press('KeyT');
 await page.waitForTimeout(300);
+
+// ---------- Ray Gun parts → craft ----------
+const partCraft = await page.evaluate(async () => {
+  const g = window.__game;
+  const { makeTool } = await import('/src/items.js');
+  g.inventory.reset();
+  for (let i = 0; i < 3; i++) g.inventory.addItem(makeTool('raygunPart'));
+  g.inventory.open();
+  const btn = document.querySelector('.recipeBtn[data-key="raygunCraft"]');
+  const affordable = btn && !btn.classList.contains('missing');
+  btn?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  const gotRaygun = g.inventory.slots.some((it) => it?.weaponKey === 'raygun');
+  const partsGone = g.inventory.countOf('raygunPart') === 0;
+  g.inventory.close();
+  return { affordable, gotRaygun, partsGone };
+});
+push(`3 blood-moon parts craft a Ray Gun (${JSON.stringify(partCraft)})`, partCraft.affordable && partCraft.gotRaygun && partCraft.partsGone);
+
+// ---------- new box weapons exist ----------
+const pool = await page.evaluate(async () => {
+  const { BOX_POOL, WEAPONS } = await import('/src/items.js');
+  return { hasRev: BOX_POOL.includes('revolver'), revName: WEAPONS.revolver.name, hasPpsh: BOX_POOL.includes('ppsh') };
+});
+push(`West Revolver + PPSh-41 in box pool (${pool.revName})`, pool.hasRev && pool.hasPpsh && pool.revName === 'West Revolver');
 
 // ---------- zombies: full lifecycle on a fresh page ----------
 await page.goto(BASE + '/?test=1', { waitUntil: 'networkidle' });
@@ -361,6 +378,46 @@ const repair = await page.evaluate(() => {
   return { off, now };
 });
 push(`hold-F repairs boards (${repair.off}→${repair.now})`, repair.skip || repair.now < repair.off);
+
+// ---------- melee shove + anti-clip ----------
+const meleeRes = await page.evaluate(() => {
+  const g = window.__game;
+  const z = g.zombies.zombies.find((z) => !z.dead && z.state === 'hunt');
+  if (!z) return { skip: true };
+  // force the zombie INSIDE the player (the old death-trap glitch)
+  z.pos.set(g.player.pos.x, g.player.pos.y, g.player.pos.z);
+  g.simulate(0.3);
+  const sep = Math.hypot(z.pos.x - g.player.pos.x, z.pos.z - g.player.pos.z);
+  // now shove it
+  g.aimAt(z.pos.x, z.pos.y + 1, z.pos.z);
+  g.simulate(0.05);
+  const hpBefore = z.hp;
+  const before = Math.hypot(z.pos.x - g.player.pos.x, z.pos.z - g.player.pos.z);
+  g.weapons.melee(g.zombies);
+  g.simulate(0.6);
+  const after = Math.hypot(z.pos.x - g.player.pos.x, z.pos.z - g.player.pos.z);
+  return { sep, hpBefore, hpAfter: z.hp, before, after, anim: true };
+});
+push(`zombie can never occupy the player (sep=${meleeRes.sep?.toFixed(2)} ≥ 0.7)`, meleeRes.skip || meleeRes.sep >= 0.7);
+push(`F-shove damages + pushes back (${meleeRes.hpBefore?.toFixed(0)}→${meleeRes.hpAfter?.toFixed(0)}, ${meleeRes.before?.toFixed(2)}→${meleeRes.after?.toFixed(2)}m)`,
+  meleeRes.skip || (meleeRes.hpAfter < meleeRes.hpBefore && meleeRes.after > meleeRes.before + 0.3));
+
+// ---------- superboss ----------
+const bossRes = await page.evaluate(() => {
+  const g = window.__game;
+  g.player.maxHealth = 100000; g.player.health = 100000;
+  g.startRound(10);
+  return new Promise((resolve) => setTimeout(() => {
+    g.simulate(1);
+    const boss = g.zombies.zombies.find((z) => z.boss);
+    resolve(boss ? {
+      hp: boss.hp, scale: boss.scale,
+      barVisible: document.getElementById('bossBar').style.display === 'block',
+    } : null);
+  }, 4200));
+});
+push(`superboss spawns on round 10 (hp=${bossRes?.hp?.toFixed(0)}, ×${bossRes?.scale})`, !!bossRes && bossRes.hp > 5000 && bossRes.scale === 1.9);
+push('boss health bar shows', !!bossRes && bossRes.barVisible);
 
 // ---------- electro-trap ----------
 const trapRes = await page.evaluate(() => {

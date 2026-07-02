@@ -101,6 +101,19 @@ function buildIconModel(key) {
           const strap = mk(B(0.3, 0.08, 0.04), 0x4a3521); strap.position.set(0, 0.1, 0.1); g.add(strap);
           break;
         }
+        case 'raygunPart': {
+          const ring = mk(new THREE.TorusGeometry(0.16, 0.05, 8, 10), 0x8a2018, { metalness: 0.7, roughness: 0.3, emissive: 0x8a2018, emissiveIntensity: 0.4 });
+          g.add(ring);
+          for (let i = 0; i < 6; i++) {
+            const tooth = mk(B(0.06, 0.06, 0.05), 0x8a2018, { metalness: 0.7, roughness: 0.3 });
+            const a = (i / 6) * Math.PI * 2;
+            tooth.position.set(Math.cos(a) * 0.21, Math.sin(a) * 0.21, 0);
+            g.add(tooth);
+          }
+          const hub = mk(new THREE.SphereGeometry(0.06, 8, 8), 0x54ff6a, { emissive: 0x54ff6a, emissiveIntensity: 0.9 });
+          g.add(hub);
+          break;
+        }
         case 'jetfuel': {
           const can = mk(B(0.28, 0.4, 0.18), 0x2a4c5c, { metalness: 0.5, roughness: 0.5 }); g.add(can);
           const cap = mk(C(0.05, 0.05, 0.08, 8), 0x3fa7c8); cap.position.y = 0.24; g.add(cap);

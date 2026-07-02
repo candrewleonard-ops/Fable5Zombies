@@ -1,9 +1,8 @@
 import { ARMOR_TIERS, WEAPONS, weaponDef, RECIPES, makeWeaponItem } from './items.js';
-import { Paperdoll } from './paperdoll.js';
 import { audio } from './audio.js';
 
 // 36-slot Minecraft-style inventory (9 hotbar + 27 grid) on T, with armor
-// slots + live paperdoll (Fable 5 flavor) and the Undead Bunker crafting
+// slots + armor slots (Fable 5 flavor) and the Undead Bunker crafting
 // panel (2×2 pocket / 3×3 bench / anvil) with a recipes bar.
 
 const SLOTS = 36;
@@ -37,8 +36,6 @@ export class Inventory {
     this.craftResultEl = document.getElementById('craftResult');
     this.recipeBarEl = document.getElementById('recipeBar');
     this.craftTitleEl = document.getElementById('craftTitle');
-
-    this.paperdoll = new Paperdoll(document.getElementById('paperdoll'));
 
     this._buildSlots();
     this._bindEvents();
@@ -94,7 +91,6 @@ export class Inventory {
     this.panel.addEventListener('mousemove', (e) => {
       this.ghostEl.style.left = e.clientX + 'px';
       this.ghostEl.style.top = e.clientY + 'px';
-      this.paperdoll.onCursor(e.clientX, e.clientY);
       this._updateTooltip(e);
     });
   }
@@ -187,7 +183,6 @@ export class Inventory {
     this.tooltipEl.classList.add('hidden');
     this._matchCraft();
     this.renderAll();
-    this.paperdoll.setArmor(this.armor);
     if (this.cb.onLoadoutChange) this.cb.onLoadoutChange();
   }
 
@@ -339,7 +334,6 @@ export class Inventory {
     this.openFlag = true;
     this.setCraftMode(mode);
     this.panel.classList.add('open');
-    this.paperdoll.setArmor(this.armor);
     this.renderAll();
   }
 
@@ -372,7 +366,6 @@ export class Inventory {
 
   update(dt) {
     if (!this.openFlag) return;
-    this.paperdoll.update(dt);
     document.getElementById('inv-hp').textContent = Math.ceil(this.player.health);
     document.getElementById('inv-armor').textContent = `${Math.ceil(this.player.armor)}/${this.player.maxArmor}`;
     document.getElementById('inv-round').textContent = this.cb.getRound ? this.cb.getRound() : 1;
@@ -470,7 +463,6 @@ export class Inventory {
     this.sel = 0;
     this.craftMode = 'pocket';
     this._recomputeArmor();
-    this.paperdoll.setArmor(this.armor);
     this.renderAll();
   }
 }

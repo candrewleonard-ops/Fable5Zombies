@@ -110,6 +110,36 @@ export function buildGunModel(key) {
       muzzleZ = -0.5;
       break;
     }
+    case 'revolver': {
+      add(g, C(0.016, 0.016, 0.3, 8), metal, 0, 0.05, -0.16, Math.PI / 2);   // barrel
+      add(g, B(0.02, 0.015, 0.28), metal, 0, 0.068, -0.15);                  // top rib
+      add(g, C(0.036, 0.036, 0.065, 8), dark, 0, 0.032, -0.01, 0, 0, Math.PI / 2); // cylinder
+      add(g, B(0.045, 0.06, 0.14), metal, 0, 0.03, 0.06);                    // frame
+      add(g, B(0.04, 0.13, 0.06), wood, 0, -0.06, 0.1, 0.42);                // walnut grip
+      add(g, B(0.012, 0.03, 0.012), metal, 0, 0.075, -0.3);                  // front sight
+      muzzleZ = -0.32;
+      break;
+    }
+    case 'ppsh': {
+      // modeled off the reference photo: perforated shroud, drum mag, full wood stock
+      add(g, B(0.055, 0.075, 0.42), wood, 0, -0.005, 0.02);                  // wooden body
+      add(g, B(0.05, 0.095, 0.2), wood, 0, -0.05, 0.28, 0.16);               // stock riser
+      add(g, B(0.048, 0.075, 0.16), wood, 0, -0.115, 0.38, 0.32);            // buttstock
+      add(g, C(0.03, 0.03, 0.44, 12), metal, 0, 0.045, -0.28, Math.PI / 2);  // barrel shroud
+      for (let i = 0; i < 5; i++) {                                          // oval cooling slots
+        add(g, B(0.064, 0.018, 0.05), dark, 0, 0.045, -0.13 - i * 0.075);
+        add(g, B(0.02, 0.045, 0.05), dark, 0, 0.045 + 0.018, -0.13 - i * 0.075);
+      }
+      add(g, B(0.062, 0.05, 0.045), metal, 0, 0.042, -0.5, 0, 0, 0.18);      // slanted muzzle brake
+      add(g, C(0.011, 0.011, 0.1, 8), dark, 0, 0.045, -0.51, Math.PI / 2);   // barrel tip
+      add(g, C(0.075, 0.075, 0.048, 16), dark, 0, -0.055, -0.1, 0, 0, Math.PI / 2); // drum magazine
+      add(g, C(0.028, 0.028, 0.052, 10), metal, 0, -0.055, -0.1, 0, 0, Math.PI / 2); // drum hub
+      add(g, B(0.02, 0.05, 0.03), metal, 0.04, 0.02, 0.12);                  // bolt handle
+      add(g, B(0.03, 0.03, 0.05), metal, 0, 0.075, 0.05);                    // rear sight
+      add(g, B(0.012, 0.035, 0.012), metal, 0, 0.085, -0.46);                // front sight post
+      muzzleZ = -0.55;
+      break;
+    }
     case 'raygun': {
       // placeholder shown until the STL loads and replaces it
       add(g, B(0.06, 0.1, 0.3), green, 0, 0.02, -0.02);
@@ -147,20 +177,46 @@ export function loadRayGunSTL(onReady) {
   }, undefined, () => { /* keep placeholder on error */ });
 }
 
+// Classic red ray-gun paint job (reference: crimson body, chrome barrel,
+// blue mid bands, red bulb tip) applied as vertex colors along the barrel axis.
+function paintRayGun(geo) {
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const bb = geo.boundingBox;
+  const zLen = bb.max.z - bb.min.z;
+  const RED = [0.40, 0.022, 0.018];    // deep crimson body
+  const CHROME = [0.58, 0.60, 0.65];   // silver trim
+  const BLUE = [0.22, 0.38, 0.68];     // steel-blue bands
+  const BULB = [0.78, 0.07, 0.05];     // glowing tip bulb
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i), z = pos.getZ(i);
+    const t = (z - bb.min.z) / zLen;   // 0 = muzzle tip, 1 = grip end
+    let c = RED;
+    if (t < 0.045) c = BULB;                          // antenna bulb
+    else if (t < 0.17) c = CHROME;                    // needle barrel
+    else if (t >= 0.34 && t < 0.52 && y > -0.02) c = BLUE; // mid cylinder bands
+    else if (y > 0.13) c = CHROME;                    // top fins
+    else if (y < -0.1 && t > 0.6) c = CHROME;         // trigger guard loop
+    colors[i * 3] = c[0]; colors[i * 3 + 1] = c[1]; colors[i * 3 + 2] = c[2];
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
+
 export function makeRayGunMesh() {
   if (!rayGunGeo) return null;
+  if (!rayGunGeo.attributes.color) paintRayGun(rayGunGeo);
   const g = new THREE.Group();
   const body = new THREE.Mesh(rayGunGeo, new THREE.MeshStandardMaterial({
-    color: 0x394048, metalness: 0.85, roughness: 0.3,
-    emissive: 0x1aff55, emissiveIntensity: 0.12,
+    vertexColors: true, metalness: 0.15, roughness: 0.42,
+    emissive: 0x1c0503, emissiveIntensity: 0.25,
   }));
   body.castShadow = true;
   g.add(body);
-  // energy core glow
-  const core = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 10), new THREE.MeshBasicMaterial({ color: 0x54ff6a }));
+  // energy core glow (bolts stay classic green)
+  const core = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 10), new THREE.MeshBasicMaterial({ color: 0xff4a3a }));
   core.position.set(0, 0.02, 0.05);
   g.add(core);
-  const coreLight = new THREE.PointLight(0x54ff6a, 1.2, 0.9, 2);
+  const coreLight = new THREE.PointLight(0xff5040, 0.45, 0.55, 2);
   coreLight.position.copy(core.position);
   g.add(coreLight);
   const muzzle = new THREE.Object3D();
@@ -200,7 +256,7 @@ export class WeaponSystem {
     });
 
     // soft fill so the viewmodel reads at night
-    const fill = new THREE.PointLight(0xd8e0ee, 1.8, 2.4, 1.6);
+    const fill = new THREE.PointLight(0xd8e0ee, 0.35, 2.4, 1.6);
     fill.position.set(0.25, -0.1, -0.35);
     camera.add(fill);
 
@@ -249,6 +305,9 @@ export class WeaponSystem {
     this.kickBack = 0;
     this.swayX = 0; this.swayY = 0;
     this.spreadBloom = 0;
+
+    this.meleeCd = 0;
+    this.meleeAnim = 0;         // 1 -> 0 bash swing
 
     this.onShot = null;
     this.onHit = null;          // (zombie, dmg, part) -> points feed
@@ -495,9 +554,12 @@ export class WeaponSystem {
       }
     }
 
+    this.meleeCd = Math.max(0, this.meleeCd - dt);
+
     if (!this.model) return;
     this.raiseAnim = Math.min(1, this.raiseAnim + dt * 4.5);
     this.kickBack *= Math.exp(-11 * dt);
+    this.meleeAnim = Math.max(0, this.meleeAnim - dt * 3.2);
 
     const k = 1 - Math.exp(-10 * dt);
     this.swayX += (THREE.MathUtils.clamp(-mouseDelta.x * 0.0012, -0.03, 0.03) - this.swayX) * k;
@@ -536,6 +598,46 @@ export class WeaponSystem {
       this.root.rotation.x -= dip * 0.5;
       this.root.rotation.z += dip * 0.3;
     }
+
+    // gun-bash swing: lunge forward + twist, then recover
+    if (this.meleeAnim > 0) {
+      const k = Math.sin(this.meleeAnim * Math.PI); // out-and-back
+      this.root.position.z -= k * 0.28;
+      this.root.position.x -= k * 0.1;
+      this.root.rotation.x += k * 0.55;
+      this.root.rotation.y += k * 0.35;
+      this.root.rotation.z -= k * 0.25;
+    }
+  }
+
+  // Gun bash: shove nearby zombies back with the weapon. Small damage,
+  // realistic short knockback, 0.8s cooldown, viewmodel swing animation.
+  melee(zombies) {
+    if (this.meleeCd > 0 || this.player.dead) return false;
+    this.meleeCd = 0.8;
+    this.meleeAnim = 1;
+    audio.melee();
+    const origin = this.player.eyePosition();
+    const fwd = this.player.eyeDirection();
+    fwd.y = 0;
+    fwd.normalize();
+    let hitAny = false;
+    for (const z of zombies.zombies) {
+      if (z.dead || !z.alive) continue;
+      const to = new THREE.Vector3(z.pos.x - this.player.pos.x, 0, z.pos.z - this.player.pos.z);
+      const dist = to.length();
+      if (dist > 2.3 || Math.abs(z.pos.y - this.player.pos.y) > 1.6) continue;
+      to.normalize();
+      if (to.dot(fwd) < 0.35 && dist > 0.9) continue; // ~110° front cone (point-blank always hits)
+      hitAny = true;
+      const dmg = 35 * this.getMods().dmgMult;
+      const hitPoint = z.pos.clone().setY(z.pos.y + 1.1);
+      const res = z.takeDamage(dmg, 'body', hitPoint, to.clone());
+      if (res && this.onHit) this.onHit(z, dmg, 'melee');
+      if (!z.dead) z.applyKnockback(to, z.boss ? 0.6 : 2.6); // bosses barely budge
+    }
+    if (hitAny) audio.hit();
+    return true;
   }
 
   crosshairSpread() {

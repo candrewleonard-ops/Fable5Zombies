@@ -14,13 +14,14 @@ const PANTS = [0x33302b, 0x3a352c, 0x2c2c30, 0x403a2e];
 let ZID = 0;
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-export function makeZombieBody(bloodMoon = false) {
-  const skin = new THREE.MeshStandardMaterial({ color: pick(SKIN), roughness: 0.9 });
-  const shirt = new THREE.MeshStandardMaterial({ color: pick(SHIRT), roughness: 0.95 });
-  const pants = new THREE.MeshStandardMaterial({ color: pick(PANTS), roughness: 0.95 });
+export function makeZombieBody(bloodMoon = false, opts = {}) {
+  const boss = !!opts.boss;
+  const skin = new THREE.MeshStandardMaterial({ color: boss ? 0x4a3a42 : pick(SKIN), roughness: 0.9 });
+  const shirt = new THREE.MeshStandardMaterial({ color: boss ? 0x241418 : pick(SHIRT), roughness: 0.95 });
+  const pants = new THREE.MeshStandardMaterial({ color: boss ? 0x1a1214 : pick(PANTS), roughness: 0.95 });
   const gore = new THREE.MeshStandardMaterial({ color: 0x4a0d08, roughness: 0.85 });
   const eyeMat = new THREE.MeshStandardMaterial({
-    color: 0x221100, emissive: bloodMoon ? 0xff3020 : 0xffb340, emissiveIntensity: 1.6,
+    color: 0x221100, emissive: (bloodMoon || boss) ? 0xff3020 : 0xffb340, emissiveIntensity: boss ? 2.6 : 1.6,
   });
   const boots = new THREE.MeshStandardMaterial({ color: 0x1d1a16, roughness: 0.9 });
   const mats = [skin, shirt, pants, gore, eyeMat, boots];
@@ -72,6 +73,34 @@ export function makeZombieBody(bloodMoon = false) {
     armL: arm(-1), armR: arm(1), legL: leg(-1), legR: leg(1),
     headMeshes: [head, jaw, eyeL, eyeR, headGore],
   };
+
+  // scavenged armor plates (randomly armored zombies)
+  if (opts.armorTier) {
+    const plate = new THREE.MeshStandardMaterial({
+      color: opts.armorColor ?? 0x9aa7b4, metalness: 0.7, roughness: 0.35,
+    });
+    mats.push(plate);
+    const helm = mk(0.3, 0.16, 0.32, plate, neck, 0, 0.28, 0, 'head');
+    parts.headMeshes.push(helm);
+    mk(0.5, 0.4, 0.3, plate, torso, 0, 0.36, 0, 'body');
+    mk(0.14, 0.14, 0.16, plate, torso, -0.3, 0.55, 0, 'body');
+    mk(0.14, 0.14, 0.16, plate, torso, 0.3, 0.55, 0, 'body');
+  }
+  // boss: jagged shoulder spikes + gnarled crown
+  if (boss) {
+    const spikeMat = new THREE.MeshStandardMaterial({ color: 0x151013, metalness: 0.5, roughness: 0.5 });
+    mats.push(spikeMat);
+    for (const sx of [-0.34, 0.34]) {
+      const sp = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.3, 5), spikeMat);
+      sp.position.set(sx, 0.62, 0); sp.rotation.z = sx > 0 ? -0.5 : 0.5;
+      torso.add(sp);
+    }
+    for (let i = 0; i < 4; i++) {
+      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.16, 4), spikeMat);
+      horn.position.set(-0.09 + i * 0.06, 0.32, 0);
+      neck.add(horn);
+    }
+  }
   return { root, parts, hitMeshes, mats };
 }
 
@@ -84,12 +113,14 @@ export class Zombie {
     this.maxHp = opts.hp;
     this.speed = opts.speed;
 
-    const body = makeZombieBody(opts.bloodMoon);
+    const body = makeZombieBody(opts.bloodMoon, opts);
     this.mesh = body.root;
     this.parts = body.parts;
     this.hitMeshes = body.hitMeshes;
     this.mats = body.mats;
-    this.scale = 0.95 + Math.random() * 0.14;
+    this.boss = !!opts.boss;
+    this.armorTier = opts.armorTier || 0;
+    this.scale = this.boss ? 1.9 : 0.95 + Math.random() * 0.14;
     this.mesh.scale.setScalar(this.scale);
     for (const m of this.hitMeshes) m.userData.zombie = this;
 
@@ -109,7 +140,9 @@ export class Zombie {
     this.repathT = 0;
     this.chain = null;
     this.groanT = 1 + Math.random() * 4;
-    this.radius = 0.32;
+    this.radius = this.boss ? 0.5 : 0.32;
+    this.kb = new THREE.Vector3(); // melee knockback, decays
+    this.slamCd = 5;
     this.alive = true;
     this.dead = false;
 
@@ -161,6 +194,33 @@ export class Zombie {
     this._move(dx * spd * dt, dz * spd * dt);
     this.face(this.pos.x + dx, this.pos.z + dz, dt);
     return dist;
+  }
+
+  applyKnockback(dir, strength) {
+    this.kb.x += dir.x * strength;
+    this.kb.z += dir.z * strength;
+  }
+
+  // zombies may never occupy the player's space — hard minimum distance so
+  // one can't clip inside you and become unkillable/inescapable
+  _resolvePlayerOverlap() {
+    const P = this.mgr.player;
+    if (P.dead) return;
+    if (Math.abs(P.pos.y - this.pos.y) > 1.6) return;
+    const minD = this.radius + 0.34 + 0.06;
+    let dx = this.pos.x - P.pos.x, dz = this.pos.z - P.pos.z;
+    const d = Math.hypot(dx, dz);
+    if (d >= minD) return;
+    if (d < 0.001) { dx = Math.sin(this.id); dz = Math.cos(this.id); }
+    else { dx /= d; dz /= d; }
+    // push the ZOMBIE out (never the player, so you keep full control)
+    this._move(dx * (minD - d), dz * (minD - d));
+    // if a wall pinned it, force the position out along the free axis
+    const d2 = Math.hypot(this.pos.x - P.pos.x, this.pos.z - P.pos.z);
+    if (d2 < minD * 0.75) {
+      this.pos.x = P.pos.x + dx * minD;
+      this.pos.z = P.pos.z + dz * minD;
+    }
   }
 
   walkAnim(dt, spd) {
@@ -285,9 +345,28 @@ export class Zombie {
         const g = groundHeightAt(world.colliders, this.pos.x, this.pos.z, this.pos.y, this.radius, 1.7);
         this.pos.y += (g - this.pos.y) * Math.min(1, dt * 10);
 
+        // boss ground slam: shockwave when the player lingers close
+        if (this.boss) {
+          this.slamCd -= dt;
+          if (this.slamCd <= 0 && distP < 5 && Math.abs(P.pos.y - this.pos.y) < 1.2 && !P.dead) {
+            this.slamCd = 6;
+            const at = this.pos.clone(); at.y += 0.3;
+            this.mgr.effects.explosion(at, 0xff5a2a, 4.5);
+            audio.explosion();
+            if (distP < 4.5) {
+              P.takeDamage(25);
+              const away = new THREE.Vector3(P.pos.x - this.pos.x, 0, P.pos.z - this.pos.z).normalize();
+              P.vel.x += away.x * 9;
+              P.vel.z += away.z * 9;
+              P.vel.y += 3.5;
+            }
+          }
+        }
+
         // attack (LOS-checked so claws don't reach through walls)
         this.attackCd -= dt;
-        if (distP < 1.7 && this.attackCd <= 0 && Math.abs(P.pos.y - this.pos.y) < 1.6 && !P.dead && this._losToPlayer()) {
+        const reach = this.boss ? 2.3 : 1.7;
+        if (distP < reach && this.attackCd <= 0 && Math.abs(P.pos.y - this.pos.y) < 1.6 && !P.dead && this._losToPlayer()) {
           this.attackCd = 1.15;
           this.attackAnim = 0.4;
           this.attackPending = 0.28;
@@ -297,8 +376,8 @@ export class Zombie {
           this.attackPending -= dt;
           if (this.attackPending <= 0 && !this.dead && !P.dead) {
             const d2 = Math.hypot(P.pos.x - this.pos.x, P.pos.z - this.pos.z);
-            if (d2 < 2.0 && this._losToPlayer()) {
-              P.takeDamage(mgr.hitDamage);
+            if (d2 < (this.boss ? 2.6 : 2.0) && this._losToPlayer()) {
+              P.takeDamage(this.boss ? 40 : mgr.hitDamage);
               audio.zombieBite();
               if (mgr.onHurtPlayer) mgr.onHurtPlayer(this);
             }
@@ -325,6 +404,15 @@ export class Zombie {
         if (this.deadT > 4.5) this.dispose();
         break;
       }
+    }
+
+    if (!this.dead && this.state !== 'rising') {
+      // decaying melee knockback
+      if (this.kb.lengthSq() > 0.0004) {
+        this._move(this.kb.x * dt * 6, this.kb.z * dt * 6);
+        this.kb.multiplyScalar(Math.exp(-6 * dt));
+      }
+      this._resolvePlayerOverlap();
     }
 
     if (this.state !== 'dead') this.mesh.position.copy(this.pos);
