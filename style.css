@@ -166,7 +166,7 @@ html, body {
 }
 #vignette {
   position: absolute; inset: 0;
-  background: radial-gradient(ellipse at center, transparent 58%, rgba(0, 0, 0, 0.5) 100%);
+  background: radial-gradient(ellipse at center, transparent 62%, rgba(0, 0, 0, 0.32) 100%);
 }
 
 /* ---------------- Inventory + crafting ---------------- */

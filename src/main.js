@@ -26,7 +26,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.25;
+renderer.toneMappingExposure = 1.45;
 document.getElementById('game').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();

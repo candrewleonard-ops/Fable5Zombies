@@ -200,7 +200,7 @@ export class WeaponSystem {
     });
 
     // soft fill so the viewmodel reads at night
-    const fill = new THREE.PointLight(0xcfd8e8, 1.1, 2.2, 1.6);
+    const fill = new THREE.PointLight(0xd8e0ee, 1.8, 2.4, 1.6);
     fill.position.set(0.25, -0.1, -0.35);
     camera.add(fill);
 

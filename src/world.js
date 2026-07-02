@@ -140,11 +140,11 @@ export function createWorld(scene) {
   const MAT = {
     wall: new THREE.MeshStandardMaterial({ map: concreteTex, roughness: 0.95 }),
     floor: new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9 }),
-    ceil: new THREE.MeshStandardMaterial({ color: 0x3a3733, roughness: 0.95 }),
+    ceil: new THREE.MeshStandardMaterial({ color: 0x4a463f, roughness: 0.95 }),
     wood: new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 }),
     woodDark: new THREE.MeshStandardMaterial({ color: 0x3e2c18, roughness: 0.9 }),
     metal: new THREE.MeshStandardMaterial({ color: 0x2e2f33, metalness: 0.7, roughness: 0.5 }),
-    dirt: new THREE.MeshStandardMaterial({ color: 0x2a2620, roughness: 1 }),
+    dirt: new THREE.MeshStandardMaterial({ color: 0x4c4132, roughness: 1 }),
   };
 
   const boxMesh = (w, h, d, mat, x, y, z, { ry = 0, cast = true, solid: makeSolid = true, shots = true } = {}) => {
@@ -159,8 +159,8 @@ export function createWorld(scene) {
   };
 
   // ---------- atmosphere ----------
-  scene.background = new THREE.Color(0x05070c);
-  scene.fog = new THREE.Fog(0x05070c, 16, 62);
+  scene.background = new THREE.Color(0x080b14);
+  scene.fog = new THREE.Fog(0x111827, 26, 100);
 
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(140, 24, 16),
@@ -168,8 +168,8 @@ export function createWorld(scene) {
   );
   scene.add(sky);
 
-  scene.add(new THREE.HemisphereLight(0x2c3d58, 0x14100a, 1.5));
-  const moonLight = new THREE.DirectionalLight(0x9db4dd, 1.4);
+  scene.add(new THREE.HemisphereLight(0x52709e, 0x2a2218, 2.6));
+  const moonLight = new THREE.DirectionalLight(0xaec2ea, 3.4);
   moonLight.position.set(40, 50, -60);
   moonLight.castShadow = true;
   moonLight.shadow.mapSize.set(2048, 2048);
@@ -189,6 +189,7 @@ export function createWorld(scene) {
   const floorSlab = (x0, x1, z0, z1, y) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, 0.25, z1 - z0), MAT.floor);
     m.position.set((x0 + x1) / 2, y - 0.125, (z0 + z1) / 2);
+    m.castShadow = true;
     m.receiveShadow = true;
     scene.add(m);
     solid(x0, x1, y - 0.25, y, z0, z1); // standable top at y
@@ -202,6 +203,7 @@ export function createWorld(scene) {
   const ceil = (x0, x1, z0, z1, y) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, 0.25, z1 - z0), MAT.ceil);
     m.position.set((x0 + x1) / 2, y + 0.125, (z0 + z1) / 2);
+    m.castShadow = true;
     m.receiveShadow = true;
     scene.add(m);
     solid(x0, x1, y, y + 0.25, z0, z1); // jetpack head-bump
@@ -298,11 +300,11 @@ export function createWorld(scene) {
       new THREE.MeshStandardMaterial({ color: 0xffd9a0, emissive: 0xffc070, emissiveIntensity: 2.2 }));
     b.position.set(x, y, z);
     scene.add(b);
-    const light = new THREE.PointLight(0xffb35c, 14, 13, 1.6);
+    const light = new THREE.PointLight(0xffc274, 26, 17, 1.5);
     light.position.set(x, y - 0.05, z);
     if (shadow) { light.castShadow = true; light.shadow.mapSize.set(512, 512); }
     scene.add(light);
-    bulbs.push({ light, mesh: b, base: 14, seed: Math.random() * 10 });
+    bulbs.push({ light, mesh: b, base: 26, seed: Math.random() * 10 });
   }
   bulb(0, 4.6, -5, true, 1.75);
   bulb(-8, 4.6, -3, false, 1.75);
@@ -312,6 +314,10 @@ export function createWorld(scene) {
   bulb(-20, 2.72, 4);
   bulb(9.5, 2.72, 14);
   bulb(-4, 5.75, 6, true, 0.6);
+  bulb(8, 4.6, -7, false, 1.75);   // MAIN east corner
+  bulb(-11.5, 2.72, 5, false, 0.5); // under-mezz west
+  bulb(-23, 2.72, 8.5, false, 0.5); // armory south
+  bulb(7, 2.72, 11.5, false, 0.5);  // storage doorway
 
   // ---------- doors ----------
   function mkDoor(x, z, ry, cost, name, unlockRoom) {
@@ -624,10 +630,10 @@ export function createWorld(scene) {
       new THREE.MeshStandardMaterial({ color: 0x401800, emissive: 0xffc040, emissiveIntensity: 2.8 }));
     flame2.position.set(fx + 0.12, 0.5, fz + 0.08);
     scene.add(flame2);
-    const fireLight = new THREE.PointLight(0xff8a30, 18, 15, 1.5);
+    const fireLight = new THREE.PointLight(0xff8a30, 30, 19, 1.4);
     fireLight.position.set(fx, 1.1, fz);
     scene.add(fireLight);
-    bulbs.push({ light: fireLight, base: 18, seed: 3.3, flames: [flame, flame2] });
+    bulbs.push({ light: fireLight, base: 30, seed: 3.3, flames: [flame, flame2] });
     solid(fx - 0.8, fx + 0.8, 0, 0.5, fz - 0.8, fz + 0.8);
     boxMesh(1.6, 0.4, 0.45, MAT.woodDark, -17, 0.2, 24.2);
     boxMesh(1.6, 0.4, 0.45, MAT.woodDark, -19.4, 0.2, 21.2, { ry: 0.9, solid: false });
@@ -684,10 +690,10 @@ export function createWorld(scene) {
       new THREE.MeshStandardMaterial({ color: 0xffd9a0, emissive: 0xffc070, emissiveIntensity: 2 }));
     globe.position.set(x, 2.28, z + 0.22);
     scene.add(globe);
-    const light = new THREE.PointLight(0xffb35c, 11, 11, 1.6);
+    const light = new THREE.PointLight(0xffc274, 20, 14, 1.5);
     light.position.set(x, 2.2, z + 0.22);
     scene.add(light);
-    bulbs.push({ light, mesh: globe, base: 11, seed: Math.random() * 10 });
+    bulbs.push({ light, mesh: globe, base: 20, seed: Math.random() * 10 });
   }
   lantern(-10, 24);
   lantern(-26, 20);
@@ -760,7 +766,7 @@ export function createWorld(scene) {
   };
 
   // ---------- exterior dressing ----------
-  const barkMat = new THREE.MeshStandardMaterial({ color: 0x17130e, roughness: 1 });
+  const barkMat = new THREE.MeshStandardMaterial({ color: 0x352c20, roughness: 1 });
   for (const [tx, tz, ts] of [[-10, -20, 1.1], [14, -18, 0.9], [24, -6, 1.2], [28, 10, 1], [18, 24, 1.15], [-6, 26, 0.85], [-22, 20, 0.95], [-33, 2, 1.1], [-31, -12, 0.9], [6, -27, 1.05]]) {
     const tree = new THREE.Group();
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14 * ts, 0.26 * ts, 4.4 * ts, 7), barkMat);
