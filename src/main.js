@@ -5,405 +5,659 @@ import { WeaponSystem } from './weapons.js';
 import { ZombieManager } from './zombies.js';
 import { Effects } from './effects.js';
 import { Inventory } from './inventory.js';
+import { IconRenderer } from './icons.js';
 import { HUD } from './hud.js';
 import { audio } from './audio.js';
-import { WEAPONS, makeWeaponItem, makeArmorItem, makeMedkit } from './items.js';
+import { Craft, Drops, gatherNode, updateScavenge } from './crafting.js';
+import { MysteryBox } from './mysterybox.js';
+import { PackAPunch } from './pap.js';
+import { BuildSystem } from './build.js';
+import { CarSys } from './car.js';
+import { WEAPONS, weaponDef, ECON, ROUND, makeWeaponItem, makeTool } from './items.js';
 
 const params = new URLSearchParams(location.search);
 const TEST_MODE = params.has('test');
 const NO_ZOMBIES = params.has('nozombies');
 
-const ADS_FOV = { pistol: 58, smg: 55, shotgun: 62, revolver: 48 };
-
 // ---------------- renderer / scene ----------------
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.3;
+renderer.toneMappingExposure = 1.25;
 document.getElementById('game').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.06, 400);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 300);
 
 const world = createWorld(scene);
 const player = new Player(camera, world);
 scene.add(player.yaw);
 
 const effects = new Effects(scene, camera);
-const weapons = new WeaponSystem(camera, player, world, effects);
+const weapons = new WeaponSystem(camera, player, { colliders: world.shotSolids, bounds: world.bounds }, effects);
+weapons.scene = scene;
 const zombies = new ZombieManager(scene, world, player, effects);
 const hud = new HUD();
-
-const inventory = new Inventory(player, {
-  onLoadoutChange: () => { weapons.equip(inventory.selectedWeapon()); hud.setArmor(player.armor, player.maxArmor); },
-  onClose: () => { if (state === 'playing' && !TEST_MODE) lockPointer(); },
-  onDropItem: (item) => {
-    spawnPickup(player.pos.clone(), { kind: item.kind, item });
-    hud.toast(`DROPPED ${item.name.toUpperCase()}`);
-  },
-});
-player.onArmorAbsorb = (absorbed) => inventory.absorbArmorDamage(absorbed);
+const icons = new IconRenderer();
+const box = new MysteryBox(scene, world);
+const pap = new PackAPunch(scene, world, effects);
+const build = new BuildSystem(scene, world, player, camera);
+const car = new CarSys(scene, world, player, camera);
 
 // ---------------- game state ----------------
-let state = 'menu'; // menu | playing | dead
-let wave = 0;
-let intermission = 0;
-let timescale = 1;
-let slowmoTimer = 0;
-let killstreak = { count: 0, timer: 0 };
-let pickups = [];
-let paused = false;
+const state = {
+  playing: false, paused: false, round: 0, points: ECON.startPoints,
+  kills: 0, toSpawn: 0, spawnT: 2, intermission: 0, time: 0,
+};
 
 const keys = new Set();
+const mouse = { down: false, rdown: false, clicked: false, rclicked: false };
 const mouseDelta = { x: 0, y: 0 };
+let fHeld = false, fEdge = false;
+let repairT = 0, deployCd = 0;
+let noLock = false;
+
+const inventory = new Inventory(player, icons, {
+  onLoadoutChange: () => onSelectionChanged(),
+  onClose: () => { if (state.playing && !TEST_MODE && !noLock) tryLock(); },
+  onDropItem: (item) => { hud.showMsg(`${item.name} dropped — inventory full`); },
+  onCraftWeapon: (recipe) => { inventory.close(); craft.startSequence(recipe); },
+  getRound: () => state.round,
+  getKills: () => state.kills,
+});
+const craft = new Craft(scene, camera, player, inventory, effects);
+const drops = new Drops(scene, player, inventory);
+
+player.onArmorAbsorb = (a) => inventory.absorbArmorDamage(a);
+player.onHurt = () => hud.damageFlash();
+player.onJetSpark = (pos) => effects.sparksColored(pos, 0xffa040);
+
+// ---------------- economy ----------------
+function addPoints(n) {
+  state.points += n;
+  hud.setPoints(state.points);
+  hud.feed(n);
+}
+function spend(n) {
+  if (state.points < n) { hud.showMsg('Not enough points'); return false; }
+  state.points -= n;
+  hud.setPoints(state.points);
+  hud.feed(-n);
+  return true;
+}
+
+// ---------------- perks ----------------
+weapons.getMods = () => ({
+  dmgMult: player.perks.has('deadeye') ? 1.4 : 1,
+  rpmMult: player.perks.has('rapid') ? 1.12 : 1,
+  reloadMult: player.perks.has('rapid') ? 0.55 : 1,
+});
+
+// ---------------- selection / loadout ----------------
+function onSelectionChanged() {
+  const item = inventory.selectedItem();
+  weapons.equip(item?.kind === 'weapon' ? item : null);
+  build.setActive(item?.kind === 'tool' && item.build ? item.build : null);
+
+  // passive tools auto-apply
+  for (let i = 0; i < inventory.slots.length; i++) {
+    const it = inventory.slots[i];
+    if (!it) continue;
+    if (it.id === 'jetpack' && !player.jetpack) {
+      player.jetpack = true;
+      player.jetFuel = 100;
+      inventory.slots[i] = null;
+      hud.showMsg('Jetpack equipped — hold SPACE to fly');
+    } else if (it.id === 'jetfuel' && player.jetpack) {
+      player.addFuel(50 * it.count);
+      inventory.slots[i] = null;
+      hud.showMsg('+ Jet fuel');
+    }
+  }
+  updateAmmoHUD();
+  hud.updateArmor(player.armor, player.maxArmor);
+}
+
+function updateAmmoHUD() {
+  const item = inventory.selectedItem();
+  hud.setWeapon(item, item?.kind === 'weapon' ? weaponDef(item) : null, weapons.reloading > 0);
+}
+
+// ---------------- combat hooks ----------------
+weapons.onShot = () => { updateAmmoHUD(); inventory.renderHUDHotbar(); };
+weapons.onHit = (z, dmg, part) => {
+  addPoints(ECON.hitPoints);
+  hud.hitmarker(part === 'head');
+  audio.hit();
+};
+zombies.onKill = (z, headshot) => {
+  state.kills++;
+  addPoints(headshot ? ECON.headshotKillBonus : ECON.killBonus);
+  if (headshot) hud.hitmarker(true);
+  if (Math.random() < 0.12) drops.spawn(z.pos.clone());
+};
+zombies.onHurtPlayer = () => hud.damageFlash();
+zombies.onBoards = () => {};
+drops.onPickup = (mat) => hud.showMsg(`+ ${mat[0].toUpperCase() + mat.slice(1)}`);
+craft.onFinish = (item) => {
+  hud.showMsg(`${item.name} crafted`);
+  const idx = inventory.slots.indexOf(item);
+  if (idx >= 0 && idx < 9) inventory.select(idx);
+  onSelectionChanged();
+};
+box.ownedKeysProvider = () =>
+  inventory.slots.filter((it) => it?.kind === 'weapon').map((it) => it.weaponKey);
+box.onRefund = (n) => addPoints(n);
+box.onMessage = (m) => hud.showMsg(m);
+car.onRunOverHit = (z, killed) => { addPoints(ECON.hitPoints); };
+car.onMessage = (m) => hud.showMsg(m);
+build.getPoints = () => state.points;
 
 // ---------------- pointer lock ----------------
 const canvas = renderer.domElement;
-function lockPointer() {
+function tryLock() {
   if (TEST_MODE) return;
-  canvas.requestPointerLock();
+  try {
+    const p = canvas.requestPointerLock();
+    if (p?.catch) p.catch(() => enableNoLock());
+    setTimeout(() => {
+      if (state.playing && document.pointerLockElement !== canvas && !noLock) enableNoLock();
+    }, 400);
+  } catch { enableNoLock(); }
+}
+function enableNoLock() {
+  noLock = true;
+  canvas.style.cursor = 'none';
+  if (state.playing) hud.showMsg('Mouse-look active · Esc to pause');
 }
 document.addEventListener('pointerlockchange', () => {
+  if (noLock || inventory.isOpen) return;
   const locked = document.pointerLockElement === canvas;
-  if (state === 'playing') {
-    paused = !locked && !inventory.isOpen;
-    document.getElementById('pause-hint').classList.toggle('hidden', !paused);
+  if (state.playing && !player.dead) {
+    state.paused = !locked;
+    document.getElementById('pauseOverlay').style.display = locked ? 'none' : 'flex';
   }
 });
-document.getElementById('pause-hint').addEventListener('click', () => lockPointer());
+document.getElementById('pauseOverlay').addEventListener('click', () => {
+  if (!noLock) tryLock();
+  else { state.paused = false; document.getElementById('pauseOverlay').style.display = 'none'; }
+});
+document.getElementById('resumeBtn')?.addEventListener('click', (e) => e.stopPropagation());
 
+// ---------------- input ----------------
 document.addEventListener('mousemove', (e) => {
-  if (document.pointerLockElement === canvas && state === 'playing') {
+  const canLook = (document.pointerLockElement === canvas || noLock || TEST_MODE);
+  if (canLook && state.playing && !state.paused && !inventory.isOpen && !car.driving) {
     player.onMouseMove(e.movementX, e.movementY);
     mouseDelta.x += e.movementX;
     mouseDelta.y += e.movementY;
   }
 });
 
-// ---------------- input ----------------
 document.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys.add(e.code);
-  if (state !== 'playing') return;
+  if (!state.playing) return;
 
   switch (e.code) {
-    case 'KeyT': // Minecraft-style inventory — on T, not E (E is lean!)
+    case 'KeyT':
+      if (player.dead || craft.crafting || car.driving) break;
       inventory.toggle();
       if (inventory.isOpen) {
-        weapons.triggerUp();          // don't keep an auto weapon firing
-        paused = false;               // inventory supersedes the pause overlay
-        document.getElementById('pause-hint').classList.add('hidden');
+        weapons.triggerUp();
         document.exitPointerLock?.();
       }
       break;
     case 'Escape':
       if (inventory.isOpen) inventory.close();
-      break;
-    case 'Space':
-      if (!inventory.isOpen && !paused) player.jump();
-      e.preventDefault();
+      else if (noLock && !player.dead) {
+        state.paused = !state.paused;
+        document.getElementById('pauseOverlay').style.display = state.paused ? 'flex' : 'none';
+      }
       break;
     case 'KeyR':
-      if (!inventory.isOpen && !paused) weapons.startReload();
+      if (!inventory.isOpen && !state.paused && !car.driving) weapons.startReload();
       break;
     case 'KeyF':
-      if (!inventory.isOpen && !paused) {
-        if (inventory.useMedkitQuick()) hud.toast('+50 HP');
+      fHeld = true; fEdge = true;
+      break;
+    case 'Space':
+      if (!inventory.isOpen && !state.paused && !player.jetpack && !car.driving) player.jump();
+      e.preventDefault();
+      break;
+    default:
+      if (/^Digit[1-9]$/.test(e.code) && !inventory.isOpen && !state.paused && !car.driving) {
+        inventory.select(Number(e.code.slice(-1)) - 1);
       }
-      break;
-    case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': case 'Digit5':
-      if (!inventory.isOpen && !paused) inventory.selectSlot(Number(e.code.slice(-1)) - 1);
-      break;
   }
 });
-document.addEventListener('keyup', (e) => keys.delete(e.code));
-window.addEventListener('blur', () => keys.clear());
+document.addEventListener('keyup', (e) => {
+  keys.delete(e.code);
+  if (e.code === 'KeyF') fHeld = false;
+});
+window.addEventListener('blur', () => { keys.clear(); fHeld = false; });
+
+document.addEventListener('wheel', (e) => {
+  if (!state.playing || inventory.isOpen || state.paused || car.driving) return;
+  const d = e.deltaY > 0 ? 1 : -1;
+  inventory.select(inventory.sel + d);
+}, { passive: true });
 
 document.addEventListener('mousedown', (e) => {
-  if (state !== 'playing' || inventory.isOpen || paused) return;
-  if (document.pointerLockElement !== canvas && !TEST_MODE) return;
-  if (e.button === 0) weapons.triggerDown(zombies);
-  if (e.button === 2) player.ads = true;
+  if (!state.playing || inventory.isOpen || state.paused || car.driving || player.dead || craft.crafting) return;
+  if (document.pointerLockElement !== canvas && !noLock && !TEST_MODE) return;
+  if (e.button === 0) { mouse.down = true; mouse.clicked = true; }
+  if (e.button === 2) { mouse.rdown = true; mouse.rclicked = true; }
 });
 document.addEventListener('mouseup', (e) => {
-  if (e.button === 0) weapons.triggerUp();
-  if (e.button === 2) player.ads = false;
+  if (e.button === 0) mouse.down = false;
+  if (e.button === 2) mouse.rdown = false;
 });
 document.addEventListener('contextmenu', (e) => {
-  if (state === 'playing' && !inventory.isOpen) e.preventDefault();
+  if (state.playing && !inventory.isOpen) e.preventDefault();
 });
 
-// ---------------- pickups ----------------
-function iconTexture(emoji) {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d');
-  g.font = '48px serif';
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText(emoji, 32, 36);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-const iconCache = {};
-
-function spawnPickup(pos, payload) {
-  if (pickups.length > 14) return;
-  const group = new THREE.Group();
-  const icon = payload.item ? payload.item.icon : '📦';
-  if (!iconCache[icon]) iconCache[icon] = iconTexture(icon);
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: iconCache[icon], transparent: true }));
-  sprite.scale.set(0.55, 0.55, 1);
-  sprite.position.y = 0.55;
-  group.add(sprite);
-
-  const beamColor = payload.kind === 'ammo' ? 0xffd27f
-    : payload.kind === 'medkit' ? 0xff6b6b
-    : payload.kind === 'armor' ? [0xb48c5a, 0xaabed2, 0xaa5aff][(payload.item.tier || 1) - 1]
-    : 0x9dff57;
-  const beam = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.06, 0.12, 3.2, 8, 1, true),
-    new THREE.MeshBasicMaterial({ color: beamColor, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
-  );
-  beam.position.y = 1.6;
-  group.add(beam);
-
-  group.position.copy(pos);
-  scene.add(group);
-  pickups.push({ group, sprite, payload, t: Math.random() * 6, life: 45 });
+// ---------------- rounds ----------------
+function startRound(r) {
+  state.round = r;
+  state.toSpawn = NO_ZOMBIES ? 0 : ROUND.count(r);
+  state.spawnT = 1.2;
+  hud.setRound(r);
+  const blood = r % 5 === 0 && r > 0;
+  hud.banner(blood ? `☽ Blood Moon — Round ${r} ☾` : `Round ${r}`);
+  world.moonLight.color.setHex(blood ? 0xd86a5a : 0x9db4dd);
+  state.bloodMoon = blood;
+  audio.roundStart();
 }
 
-function rollDrop(z) {
-  const p = z.pos.clone();
-  if (z.type === 'brute') {
-    // brutes always drop something juicy
-    if (wave >= 6 && Math.random() < 0.4) spawnPickup(p, { kind: 'weapon', item: makeWeaponItem('revolver') });
-    else spawnPickup(p, { kind: 'armor', item: makeArmorItem(['helmet', 'chest', 'legs', 'boots'][Math.random() * 4 | 0], Math.min(3, 2 + (Math.random() < 0.4 ? 1 : 0))) });
+function pickSpeed(r) {
+  if (r <= 1) return 0.9 + Math.random() * 0.4;
+  const sprintChance = ROUND.sprinterChance(r) * (state.bloodMoon ? 1.3 : 1);
+  const roll = Math.random();
+  if (roll < sprintChance) return 3.1 + Math.random() * 0.8;
+  if (roll < 0.65) return 1.7 + Math.random() * 0.7;
+  return 1.0 + Math.random() * 0.5;
+}
+
+function spawnZombie() {
+  const candidates = world.windows.filter((w) => world.rooms[w.room]?.unlocked && !w.gate);
+  if (!candidates.length) return;
+  const weights = candidates.map((w) => 1 / (4 + w.group.position.distanceTo(player.pos)));
+  const total = weights.reduce((a, b) => a + b, 0);
+  let roll = Math.random() * total;
+  let win = candidates[0];
+  for (let i = 0; i < candidates.length; i++) {
+    roll -= weights[i];
+    if (roll <= 0) { win = candidates[i]; break; }
+  }
+  state.toSpawn--;
+  zombies.spawnAt(win, { hp: ROUND.hp(state.round), speed: pickSpeed(state.round), bloodMoon: state.bloodMoon });
+}
+
+function updateRound(dt) {
+  if (state.intermission > 0) {
+    state.intermission -= dt;
+    if (state.intermission <= 0) startRound(state.round + 1);
     return;
   }
-  const r = Math.random();
-  if (r < 0.26) spawnPickup(p, { kind: 'ammo' });
-  else if (r < 0.36) spawnPickup(p, { kind: 'medkit', item: makeMedkit() });
-  else if (r < 0.46) {
-    const tier = wave >= 6 ? (Math.random() < 0.25 ? 3 : 2) : wave >= 3 ? (Math.random() < 0.5 ? 2 : 1) : 1;
-    spawnPickup(p, { kind: 'armor', item: makeArmorItem(['helmet', 'chest', 'legs', 'boots'][Math.random() * 4 | 0], tier) });
-  } else if (r < 0.52 && wave >= 2) {
-    const key = wave >= 3 && Math.random() < 0.5 ? 'shotgun' : 'smg';
-    spawnPickup(p, { kind: 'weapon', item: makeWeaponItem(key) });
+  const alive = zombies.aliveCount;
+  if (state.toSpawn > 0) {
+    state.spawnT -= dt;
+    if (state.spawnT <= 0 && alive < ROUND.aliveCap(state.round)) {
+      state.spawnT = ROUND.spawnInterval(state.round);
+      spawnZombie();
+    }
+  } else if (alive === 0 && state.round > 0 && !NO_ZOMBIES) {
+    state.intermission = ROUND.intermission;
+    audio.roundEnd();
+    hud.showMsg('Round clear');
   }
 }
 
-let fullToastCooldown = 0;
-function updatePickups(dt) {
-  for (let i = pickups.length - 1; i >= 0; i--) {
-    const pk = pickups[i];
-    pk.t += dt;
-    pk.life -= dt;
-    pk.sprite.position.y = 0.55 + Math.sin(pk.t * 2.4) * 0.12;
-    pk.sprite.material.rotation = Math.sin(pk.t * 1.2) * 0.15;
-    const d = pk.group.position.distanceTo(player.pos);
-    let consumed = false;
-    if (d < 1.35 && !player.dead) {
-      const pay = pk.payload;
-      if (pay.kind === 'ammo') {
-        const cur = weapons.item;
-        if (cur) {
-          const amount = WEAPONS[cur.weaponKey].magSize * 2;
-          weapons.addReserve(amount);
-          hud.toast(`+${amount} AMMO`);
-          consumed = true;
-        }
-      } else {
-        if (inventory.addItem(pay.item)) {
-          hud.toast(`${pay.item.icon} ${pay.item.name.toUpperCase()}`);
-          consumed = true;
-        } else if (fullToastCooldown <= 0) {
-          hud.toast('INVENTORY FULL');
-          fullToastCooldown = 2;
+// ---------------- trap ----------------
+function updateTrap(dt) {
+  const T = world.trap;
+  if (T.state === 'active') {
+    T.t -= dt;
+    if (Math.random() < dt * 14) {
+      const a = T.posA.clone(); a.y = 0.3 + Math.random() * 2.1;
+      const b = T.posB.clone(); b.y = 0.3 + Math.random() * 2.1;
+      effects.tracer(a, b, 0x9fd8ff);
+      if (Math.random() < 0.35) audio.zap();
+    }
+    zombies.zoneDamage(T.zone, 360, dt);
+    // player tick
+    const p = player.pos;
+    if (p.x > T.zone.x0 && p.x < T.zone.x1 && p.z > T.zone.z0 && p.z < T.zone.z1 && p.y < 2) {
+      T.hurtT = (T.hurtT || 0) + dt;
+      if (T.hurtT > 0.5) { T.hurtT = 0; player.takeDamage(8); }
+    }
+    for (const tip of T.tips) tip.material.emissiveIntensity = 2 + Math.random() * 2;
+    if (T.t <= 0) {
+      T.state = 'cooldown'; T.t = 40;
+      for (const tip of T.tips) tip.material.emissiveIntensity = 0.3;
+    }
+  } else if (T.state === 'cooldown') {
+    T.t -= dt;
+    if (T.t <= 0) {
+      T.state = 'ready';
+      for (const tip of T.tips) tip.material.emissiveIntensity = 1.2;
+    }
+  }
+}
+
+// ---------------- F interactions ----------------
+function nearestInteract() {
+  const eye = player.pos.clone(); eye.y += 1.6;
+  const cands = [];
+
+  for (const win of world.windows) {
+    if (win.gate || !world.rooms[win.room]?.unlocked) continue;
+    const wp = win.group.position.clone(); wp.y = win.floorY;
+    const d = wp.distanceTo(player.pos);
+    if (d < 2.3 && win.boards.some((b) => !b.on)) {
+      cands.push({ d, type: 'window', win, prompt: '<b>Hold F</b> — Rebuild barricade <b>+10</b>' });
+    }
+  }
+  for (const door of world.doors) {
+    if (door.open) continue;
+    const d = door.pos.distanceTo(eye);
+    if (d < 2.4) cands.push({ d, type: 'door', door, prompt: `<b>F</b> — Open ${door.name} <b>[${door.cost}]</b>` });
+  }
+  for (const pm of world.perks) {
+    if (player.perks.has(pm.key)) continue;
+    const d = pm.pos.clone().add(new THREE.Vector3(0, 0.2, 0)).distanceTo(eye);
+    if (d < 2.2) cands.push({ d, type: 'perk', pm, prompt: `<b>F</b> — Buy ${pm.name} <b>[${pm.cost}]</b>` });
+  }
+  for (const wb of world.wallBuys) {
+    const d = wb.pos.distanceTo(eye);
+    if (d < 2.4) {
+      const def = WEAPONS[wb.key];
+      const owned = inventory.slots.find((it) => it?.kind === 'weapon' && it.weaponKey === wb.key && !it.pap);
+      const cost = owned ? Math.round(def.cost / 2 / 10) * 10 : def.cost;
+      cands.push({
+        d, type: 'wallbuy', wb, owned, cost,
+        prompt: `<b>F</b> — ${owned ? 'Ammo for' : 'Buy'} ${def.name} <b>[${cost}]</b>`,
+      });
+    }
+  }
+  const bd = box.pos.distanceTo(player.pos);
+  if (bd < 2.5) {
+    if (box.state === 'idle') cands.push({ d: 1, type: 'box', prompt: `<b>F</b> — Mystery Box <b>[${box.cost}]</b>` });
+    else if (box.state === 'ready') cands.push({ d: 0.5, type: 'boxTake', prompt: `<b>F</b> — Take ${WEAPONS[box.weapon].name}` });
+  }
+  const pd = pap.pos.distanceTo(player.pos);
+  if (pd < 2.6) {
+    const held = inventory.selectedWeapon();
+    if (pap.state === 'idle' && held && !held.pap) {
+      cands.push({ d: 0.6, type: 'pap', held, prompt: `<b>F</b> — Reforge ${held.name} <b>[${pap.cost}]</b>` });
+    } else if (pap.ready) {
+      cands.push({ d: 0.4, type: 'papTake', prompt: `<b>F</b> — Take ★ ${pap.item ? WEAPONS[pap.item.weaponKey].name : ''}` });
+    } else if (pap.state !== 'idle') {
+      cands.push({ d: 0.7, type: 'noop', prompt: 'Reforging…' });
+    }
+  }
+  if (car.canEnter(player.pos)) cands.push({ d: car.pos.distanceTo(player.pos), type: 'car', prompt: '<b>F</b> — Enter vehicle' });
+  for (const n of world.scavenge) {
+    if (n.cd > 0) continue;
+    const d = n.pos.distanceTo(player.pos);
+    if (d < 2.2) cands.push({ d, type: 'scav', n, prompt: `<b>F</b> — Gather ${n.mat}` });
+  }
+  for (const st of build.stations) {
+    const d = st.pos.distanceTo(player.pos);
+    if (d < 2.3) cands.push({ d, type: 'station', st, prompt: `<b>F</b> — Use ${st.kind === 'bench' ? 'Crafting Bench (3×3)' : 'Anvil'}` });
+  }
+  const td = world.trap.switchPos.distanceTo(eye);
+  if (td < 2.5) {
+    const T = world.trap;
+    if (T.state === 'ready') cands.push({ d: 1, type: 'trap', prompt: `<b>F</b> — Electro-trap <b>[${T.cost}]</b>` });
+    else if (T.state === 'active') cands.push({ d: 1, type: 'noop', prompt: '⚡ TRAP ACTIVE ⚡' });
+    else cands.push({ d: 1, type: 'noop', prompt: `Trap cooling — ${Math.ceil(T.t)}s` });
+  }
+
+  cands.sort((a, b) => a.d - b.d);
+  return cands[0] || null;
+}
+
+function doInteract(it, dt) {
+  if (it.type === 'window') {
+    if (fHeld) {
+      repairT += dt;
+      if (repairT > 0.55) {
+        repairT = 0;
+        if (world.addBoard(it.win)) { addPoints(ECON.boardRepair); audio.boardAdd(); }
+      }
+    }
+    return;
+  }
+  if (!fEdge) return;
+  switch (it.type) {
+    case 'door':
+      if (spend(it.door.cost)) {
+        world.openDoor(it.door);
+        audio.doorOpen(); audio.buy();
+        hud.showMsg(`${it.door.name} opened`);
+      } else audio.deny();
+      break;
+    case 'perk': {
+      if (player.perks.size >= 4) { hud.showMsg('Max 4 perks'); audio.deny(); break; }
+      const cost = ECON.perks[it.pm.key].cost;
+      if (spend(cost)) {
+        player.perks.add(it.pm.key);
+        if (it.pm.key === 'tonic') { player.maxHealth = 250; player.health = 250; }
+        audio.perkJingle();
+        hud.perkHUD(player.perks);
+        hud.showMsg(`${it.pm.name} acquired`);
+      } else audio.deny();
+      break;
+    }
+    case 'wallbuy': {
+      if (it.owned) {
+        const def = weaponDef(it.owned);
+        if (it.owned.reserve >= def.reserve) { hud.showMsg('Ammo full'); audio.deny(); break; }
+        if (spend(it.cost)) { it.owned.reserve = def.reserve; audio.buy(); inventory.renderAll(); updateAmmoHUD(); }
+        else audio.deny();
+      } else if (spend(it.cost)) {
+        inventory.addItem(makeWeaponItem(it.wb.key));
+        audio.buy();
+      } else audio.deny();
+      break;
+    }
+    case 'box':
+      if (spend(box.cost)) box.roll();
+      else audio.deny();
+      break;
+    case 'boxTake': {
+      const item = box.take();
+      if (item && !inventory.addItem(item)) hud.showMsg('Inventory full');
+      break;
+    }
+    case 'pap':
+      if (spend(pap.cost)) {
+        const idx = inventory.slots.indexOf(it.held);
+        if (idx >= 0) inventory.slots[idx] = null;
+        inventory.renderAll();
+        pap.insert(it.held);
+        onSelectionChanged();
+      } else audio.deny();
+      break;
+    case 'papTake': {
+      const upgraded = pap.takeOut();
+      if (upgraded) {
+        icons.refresh(upgraded);
+        if (!inventory.slots[inventory.sel]) inventory.slots[inventory.sel] = upgraded;
+        else inventory.addItem(upgraded);
+        inventory.renderAll();
+        onSelectionChanged();
+        hud.showMsg(`${upgraded.name} ready`);
+        audio.perkJingle();
+      }
+      break;
+    }
+    case 'car':
+      car.enter();
+      hud.setPrompt(null);
+      break;
+    case 'scav': {
+      const got = gatherNode(it.n, inventory);
+      if (got) hud.showMsg(`+${got.amount} ${got.mat}`);
+      break;
+    }
+    case 'station':
+      inventory.open(it.st.kind);
+      document.exitPointerLock?.();
+      break;
+    case 'trap':
+      if (spend(world.trap.cost)) {
+        world.trap.state = 'active';
+        world.trap.t = 25;
+        audio.zap();
+        hud.showMsg('Trap active');
+      } else audio.deny();
+      break;
+  }
+}
+
+// ---------------- per-item LMB/RMB ----------------
+function handleItemActions() {
+  const item = inventory.selectedItem();
+  if (!item || craft.crafting) { mouse.clicked = false; mouse.rclicked = false; return; }
+
+  if (item.kind === 'weapon') {
+    player.ads = mouse.rdown;
+    if (mouse.down || mouse.clicked) weapons.triggerDown(zombies);
+    else weapons.triggerUp();
+  } else {
+    player.ads = false;
+    weapons.triggerUp();
+    if (item.kind === 'tool' && item.build) {
+      const isStation = item.build === 'bench' || item.build === 'anvil';
+      if (mouse.clicked) {
+        if (build.valid && (isStation || spend(ECON.buildCost))) {
+          const placed = build.place();
+          if (placed && isStation) {
+            inventory.slots[inventory.sel] = null;
+            inventory.renderAll();
+            onSelectionChanged();
+          }
+        } else if (!build.valid) audio.deny();
+      }
+      if (mouse.rclicked && !isStation) {
+        const removed = build.removeTargeted();
+        if (removed) {
+          if (removed.piece === 'bench' || removed.piece === 'anvil') inventory.addItem(makeTool(removed.piece));
+          else addPoints(ECON.buildRefund);
         }
       }
-      if (consumed) audio.pickup();
-    }
-    if (consumed || pk.life <= 0) {
-      scene.remove(pk.group);
-      pickups.splice(i, 1);
+    } else if (item.id === 'carKeys') {
+      deployCd -= 0;
+      if (mouse.clicked && deployCd <= 0) {
+        deployCd = 1.2;
+        const fwd = new THREE.Vector3(-Math.sin(player.yaw.rotation.y), 0, -Math.cos(player.yaw.rotation.y));
+        const dp = player.pos.clone().addScaledVector(fwd, 4.6);
+        car.deploy(dp, player.yaw.rotation.y);
+      }
     }
   }
-  fullToastCooldown -= dt;
+  mouse.clicked = false;
+  mouse.rclicked = false;
 }
 
-// ---------------- waves ----------------
-function startWave(n) {
-  wave = n;
-  zombies.startWave(n);
-  hud.setWave(n);
-  hud.setZombiesLeft(zombies.remaining);
-  const blood = n % 5 === 0;
-  hud.waveBanner(blood ? `☽ BLOOD MOON — WAVE ${n} ☾` : `WAVE ${n}`, blood);
-  audio.waveHorn(blood);
-  // blood moon atmosphere
-  scene.fog.color.setHex(blood ? 0x1a0708 : 0x070a12);
-  scene.background.setHex(blood ? 0x0d0304 : 0x04060c);
-  world.moonLight.color.setHex(blood ? 0xd86a5a : 0x8fa8d8);
-}
-
-zombies.onRemainingChange = () => hud.setZombiesLeft(zombies.remaining);
-
-zombies.onKill = (z, part) => {
-  const headshot = part === 'head';
-  const pts = z.def.points + (headshot ? 40 : 0);
-  player.points += pts;
-  player.kills++;
-  hud.setPoints(player.points);
-  hud.hitmarker(true);
-  hud.killfeed(`${headshot ? '💥 HEADSHOT — ' : ''}${z.type.toUpperCase()} +${pts}`);
-
-  // killstreaks
-  killstreak.count = killstreak.timer > 0 ? killstreak.count + 1 : 1;
-  killstreak.timer = 2.2;
-  if (killstreak.count >= 2) {
-    const label = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'QUAD KILL', 'RAMPAGE'][Math.min(5, killstreak.count)];
-    hud.killfeed(`⚡ ${label}`);
-  }
-
-  rollDrop(z);
-
-  // last kill of the wave → bullet time
-  if (zombies.remaining === 0) {
-    timescale = 0.22;
-    slowmoTimer = 1.5;
-    hud.slowmo(true);
-    audio.slowmo(true);
-    intermission = 5;
-    hud.waveBanner('WAVE CLEARED', true);
-  }
-};
-
-zombies.onHurtPlayer = () => {
-  hud.damageFlash(1);
-  hud.setHealth(player.health, player.maxHealth);
-  hud.setArmor(player.armor, player.maxArmor);
-};
-
-weapons.onShot = () => hud.setWeapon(weapons.item, weapons.def, weapons.reloading > 0);
-
-// ---------------- start / death / restart ----------------
-function startGame() {
-  document.getElementById('menu').classList.add('hidden');
-  document.getElementById('death-screen').classList.add('hidden');
+// ---------------- start / death ----------------
+function start() {
   audio.start();
-
-  player.reset();
-  inventory.reset();
-  zombies.clear();
-  for (const pk of pickups) scene.remove(pk.group);
-  pickups = [];
-
-  inventory.addItem(makeWeaponItem('pistol'));
-  inventory.addItem(makeMedkit());
-  inventory.selectSlot(0);
-  weapons.equip(inventory.selectedWeapon());
-
-  state = 'playing';
-  paused = false;
+  document.getElementById('menuOverlay').style.display = 'none';
   hud.show();
-  hud.setHealth(player.health, player.maxHealth);
-  hud.setArmor(0, 0);
-  hud.setPoints(0);
-  intermission = 0;
-  timescale = 1;
-  slowmoTimer = 0;
-  hud.slowmo(false);
-  killstreak.count = 0;
-  killstreak.timer = 0;
-
-  startWave(1);
-  if (NO_ZOMBIES) { zombies.toSpawn = 0; hud.setZombiesLeft(0); intermission = Infinity; }
-  lockPointer();
+  tryLock();
+  state.playing = true;
+  player.reset();
+  player.pos.copy(world.spawnPoint);
+  inventory.reset();
+  inventory.addItem(makeWeaponItem('mauser'));
+  inventory.addItem(makeTool('buildWall'));
+  inventory.addItem(makeTool('buildFloor'));
+  inventory.addItem(makeTool('buildStairs'));
+  inventory.addItem(makeTool('carKeys'));
+  inventory.select(0);
+  onSelectionChanged();
+  hud.setPoints(state.points);
+  hud.perkHUD(player.perks);
+  setTimeout(() => startRound(1), 900);
 }
 
 function die() {
-  state = 'dead';
+  player.dead = true;
+  state.playing = false;
   document.exitPointerLock?.();
-  if (inventory.isOpen) inventory.close();
-  weapons.triggerUp();
-  hud.hide();
-  document.getElementById('death-stats').innerHTML =
-    `WAVE ${wave} • ${player.kills} KILLS • ${player.points} POINTS`;
-  document.getElementById('death-screen').classList.remove('hidden');
+  document.getElementById('survStats').textContent =
+    `Survived ${state.round} round${state.round > 1 ? 's' : ''} · ${state.kills} kills`;
+  document.getElementById('deadOverlay').style.display = 'flex';
 }
 
-document.getElementById('play-btn').addEventListener('click', startGame);
-document.getElementById('restart-btn').addEventListener('click', startGame);
+document.getElementById('startBtn').addEventListener('click', start);
+document.getElementById('restartBtn').addEventListener('click', () => location.reload());
 
 // ---------------- main loop ----------------
 const clock = new THREE.Clock();
-let groanAmbientTimer = 4;
-let lastHotbarMag = -1;
 
-function updateGame(dt, rawDt) {
-  world.update(dt, clock.elapsedTime);
-  effects.update(rawDt * (paused ? 0 : timescale));
+function updateGame(dt) {
+  state.time += dt;
+  world.update(dt, state.time);
 
-  if (state === 'playing' && !paused) {
-    const adsFov = weapons.def ? ADS_FOV[weapons.item.weaponKey] : 56;
-    player.update(dt, { keys: inventory.isOpen ? new Set() : keys, adsFov });
-    weapons.update(dt, zombies, mouseDelta);
+  if (state.playing && !player.dead && !state.paused && !inventory.isOpen) {
+    if (!car.driving) {
+      player.update(dt, { keys, jetThrust: keys.has('Space') });
+      build.update();
+      handleItemActions();
+
+      // F interact scan
+      const it = nearestInteract();
+      hud.setPrompt(it ? it.prompt : null);
+      if (it) doInteract(it, dt);
+      else repairT = 0;
+      fEdge = false;
+    } else {
+      // driving: exit prompt + F
+      hud.setPrompt(Math.abs(car.speed) < 1 ? '<b>F</b> — Exit vehicle' : null);
+      if (fEdge && Math.abs(car.speed) < 1) { car.exit(); hud.setPrompt(null); }
+      fEdge = false;
+    }
+    deployCd = Math.max(0, deployCd - dt);
+
+    car.update(dt, keys, zombies);
+    pap.update(dt);
+    craft.update(dt);
+    drops.update(dt);
+    updateScavenge(world.scavenge, dt);
+    updateTrap(dt);
+    updateRound(dt);
     zombies.update(dt);
-    updatePickups(dt);
-    inventory.update(rawDt);
+    box.update(dt, state.time);
+    weapons.update(dt, zombies, mouseDelta);
 
-    killstreak.timer -= dt;
-
-    // wave intermission
-    if (zombies.remaining === 0 && intermission > 0) {
-      intermission -= dt;
-      if (intermission <= 0) startWave(wave + 1);
-    }
-
-    // HUD refresh
-    hud.setHealth(player.health, player.maxHealth);
-    hud.setArmor(player.armor, player.maxArmor);
-    hud.setWeapon(weapons.item, weapons.def, weapons.reloading > 0);
-    hud.setCrosshairSpread(weapons.crosshairSpread(), player.ads);
-    const magNow = weapons.item ? weapons.item.mag : -1;
-    if (magNow !== lastHotbarMag) {
-      lastHotbarMag = magNow;
-      inventory.renderHUDHotbar(); // keep the hotbar ammo badge live
-    }
-
-    // distant ambient groans to keep the dread up
-    groanAmbientTimer -= dt;
-    if (groanAmbientTimer <= 0) {
-      groanAmbientTimer = 6 + Math.random() * 10;
-      if (zombies.aliveCount > 0) audio.zombieGroan(18 + Math.random() * 15);
-    }
+    hud.updateHealthFx(player.health, player.maxHealth, dt);
+    hud.updateFuel(player.jetpack, player.jetFuel);
+    hud.updateArmor(player.armor, player.maxArmor);
+    updateAmmoHUD();
 
     if (player.dead) die();
+  } else {
+    hud.updateHealthFx(player.health, player.maxHealth, dt);
   }
+
+  inventory.update(dt);
+  effects.update(dt);
+  mouseDelta.x = 0;
+  mouseDelta.y = 0;
 }
 
 function tick() {
   requestAnimationFrame(tick);
-  const rawDt = Math.min(0.05, clock.getDelta());
-
-  // slow-mo recovery runs on real time
-  if (slowmoTimer > 0) {
-    slowmoTimer -= rawDt;
-    if (slowmoTimer <= 0) {
-      timescale = 1;
-      hud.slowmo(false);
-      audio.slowmo(false);
-    }
-  }
-
-  const dt = rawDt * (state === 'playing' && !paused ? timescale : 0);
-  updateGame(dt, rawDt);
-
-  mouseDelta.x = 0; mouseDelta.y = 0;
+  const dt = Math.min(0.05, clock.getDelta());
+  updateGame(dt);
   renderer.render(scene, camera);
 }
 tick();
@@ -414,16 +668,22 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// ---------------- zombie spawn helper on manager ----------------
+// (weighted window selection lives here; manager exposes spawnAt)
+
 // ---------------- headless test hook ----------------
 if (TEST_MODE) {
   window.__game = {
-    THREE, scene, camera, renderer,
-    player, world, zombies, weapons, inventory, hud,
-    get state() { return state; },
-    start: startGame,
+    THREE, scene, camera, renderer, state,
+    player, world, zombies, weapons, inventory, hud, box, pap, build, car, craft, drops,
+    addPoints, spend, startRound, spawnZombie,
+    start,
     keys,
     pressKey: (code) => keys.add(code),
     releaseKey: (code) => keys.delete(code),
+    pressF: () => { fHeld = true; fEdge = true; },
+    releaseF: () => { fHeld = false; },
+    click: () => { mouse.clicked = true; mouse.down = true; setTimeout(() => (mouse.down = false), 0); },
     teleport: (x, y, z) => { player.pos.set(x, y, z); player.vel.set(0, 0, 0); },
     lookAt: (yaw, pitch) => { player.yaw.rotation.y = yaw; player.pitch.rotation.x = pitch; },
     aimAt: (x, y, z) => {
@@ -432,14 +692,11 @@ if (TEST_MODE) {
       player.pitch.rotation.x = Math.atan2(dy, Math.hypot(dx, dz));
     },
     fire: () => { weapons.triggerDown(zombies); weapons.triggerUp(); },
-    // step the sim at a fixed rate, independent of headless render speed
     simulate: (seconds) => {
       const step = 1 / 60;
-      for (let t = 0; t < seconds; t += step) updateGame(step, step);
+      for (let t = 0; t < seconds; t += step) updateGame(step);
       renderer.render(scene, camera);
     },
-    spawnPickupAt: (x, z, payload) => spawnPickup(new THREE.Vector3(x, 0, z), payload),
   };
-  // auto-start so tests skip the menu click
-  startGame();
+  start();
 }

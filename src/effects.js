@@ -156,8 +156,10 @@ export class Effects {
     }
   }
 
-  sparks(pos) {
-    const c = new THREE.Color(0xffcf7a);
+  sparks(pos) { this.sparksColored(pos, 0xffcf7a); }
+
+  sparksColored(pos, colorHex) {
+    const c = new THREE.Color(colorHex);
     for (let i = 0; i < 7; i++) {
       const v = new THREE.Vector3((Math.random() - 0.5), Math.random() * 1.4, (Math.random() - 0.5))
         .normalize().multiplyScalar(2.5 + Math.random() * 4);
@@ -180,6 +182,25 @@ export class Effects {
       const v = new THREE.Vector3((Math.random() - 0.5) * 0.5, 0.6 + Math.random() * 0.6, (Math.random() - 0.5) * 0.5);
       this._emit(pos, v, 0.5 + Math.random() * 0.4, c, 0.09 + Math.random() * 0.08, -0.6, 2.0);
     }
+  }
+
+  explosion(at, colorHex = 0x9fe8ff, radius = 4) {
+    const c = new THREE.Color(colorHex);
+    const warm = new THREE.Color(0xfff3c0);
+    for (let i = 0; i < 30; i++) {
+      const v = new THREE.Vector3((Math.random() - 0.5), Math.random() * 0.9, (Math.random() - 0.5))
+        .normalize().multiplyScalar(3 + Math.random() * 7);
+      this._emit(at, v, 0.4 + Math.random() * 0.5, c, 0.09 + Math.random() * 0.12, 8, 1.5);
+    }
+    for (let i = 0; i < 20; i++) {
+      const v = new THREE.Vector3((Math.random() - 0.5), Math.random(), (Math.random() - 0.5))
+        .normalize().multiplyScalar(2 + Math.random() * 5);
+      this._emit(at, v, 0.3 + Math.random() * 0.4, warm, 0.07 + Math.random() * 0.1, 10, 2);
+    }
+    const flash = new THREE.PointLight(colorHex, 30, radius * 3.5, 1.5);
+    flash.position.copy(at);
+    this.scene.add(flash);
+    setTimeout(() => this.scene.remove(flash), 130);
   }
 
   // ---------------- tracer ----------------

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Undead Bunker — 3D Asset Library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Pirata+One&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { background:#0c0d10; color:#d8cdb8; font-family:'Barlow Condensed',sans-serif; }
+  #gl { position:fixed; inset:0; z-index:0; pointer-events:none; }
+  #page { position:relative; z-index:1; max-width:1280px; margin:0 auto; padding:38px 28px 90px; }
+  header { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:8px; }
+  h1 { font-family:'Pirata One',serif; font-size:52px; color:#b81414; text-shadow:0 0 26px rgba(184,20,20,.4), 0 3px 2px #000; letter-spacing:1px; }
+  header a { color:#8a7f6a; text-decoration:none; font-size:18px; letter-spacing:2px; border-bottom:1px dotted #6b6355; }
+  header a:hover { color:#d8cdb8; }
+  .note { color:#6f6759; font-size:16px; letter-spacing:1px; margin-bottom:26px; }
+  h2 { font-size:22px; letter-spacing:5px; text-transform:uppercase; color:#9a917f; margin:38px 0 14px; border-bottom:1px solid #26272c; padding-bottom:8px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(255px, 1fr)); gap:18px; }
+  .card { background:#141519; border:1px solid #26272c; box-shadow:0 4px 18px rgba(0,0,0,.4); }
+  .view { width:100%; aspect-ratio:1.15; }
+  .meta { padding:12px 14px 14px; border-top:1px solid #22232a; }
+  .meta h3 { font-size:21px; font-weight:700; letter-spacing:1px; color:#e8dfcf; }
+  .meta h3 .tag { font-size:13px; letter-spacing:2px; color:#0c0d10; background:#8a7f6a; padding:1px 7px; vertical-align:3px; margin-left:8px; }
+  .meta p { font-size:15.5px; color:#8a8172; letter-spacing:.5px; margin-top:3px; }
+  footer { margin-top:60px; color:#5a5347; font-size:15px; letter-spacing:1px; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="page">
+  <header>
+    <h1>ASSET LIBRARY</h1>
+    <a href="Undead Bunker.html">← Back to the game</a>
+  </header>
+  <div class="note">Every asset is generated procedurally in-engine — spin-table previews below. Original designs: WWII-era hardware, homage machines, and one very fast coupe.</div>
+  <div id="sections"></div>
+  <footer>UNDEAD BUNKER — all assets original · drop a rigged GLB in chat to swap in scanned models</footer>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="js/weapons.js"></script>
+<script src="js/zombies.js"></script>
+<script src="js/car.js"></script>
+<script src="js/map.js"></script>
+<script src="js/pap.js"></script>
+<script src="js/build.js"></script>
+<script src="js/crafting.js"></script>
+<script src="js/library.js"></script>
+</body>
+</html>

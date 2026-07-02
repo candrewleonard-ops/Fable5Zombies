@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UNDEAD BUNKER — Wave Survival</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Pirata+One&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#000; font-family:'Barlow Condensed',sans-serif; }
+  #game { position:fixed; inset:0; }
+  #game canvas { display:block; }
+
+  /* ---------- HUD ---------- */
+  #hud { position:fixed; inset:0; pointer-events:none; display:none; }
+  #crosshair { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:6px; height:6px; border-radius:50%; background:rgba(255,255,255,.85); box-shadow:0 0 4px rgba(0,0,0,.8); }
+  #hitmarker { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:26px; height:26px; opacity:0; }
+  #hitmarker span { position:absolute; width:11px; height:2px; background:#fff; box-shadow:0 0 3px #000; }
+  #hitmarker span:nth-child(1){ left:0; top:2px; transform:rotate(45deg); }
+  #hitmarker span:nth-child(2){ right:0; top:2px; transform:rotate(-45deg); }
+  #hitmarker span:nth-child(3){ left:0; bottom:2px; transform:rotate(-45deg); }
+  #hitmarker span:nth-child(4){ right:0; bottom:2px; transform:rotate(45deg); }
+  #hitmarker.head span { background:#ff3b30; }
+  #hitmarker.show { opacity:1; }
+
+  #round { position:absolute; left:34px; bottom:26px; font-family:'Pirata One',serif; font-size:88px; line-height:.9; color:#a31111; text-shadow:0 0 18px rgba(163,17,17,.55), 0 2px 2px #000; }
+  #roundLabel { position:absolute; left:36px; bottom:118px; font-size:17px; letter-spacing:4px; color:#c9beae; opacity:.7; text-transform:uppercase; }
+
+  #points { position:absolute; left:34px; bottom:0px; }
+  #pointsVal { position:absolute; left:150px; bottom:34px; font-size:34px; font-weight:700; color:#e8dfcf; text-shadow:0 2px 2px #000; }
+  #pointsFeed { position:absolute; left:150px; bottom:70px; display:flex; flex-direction:column-reverse; gap:2px; }
+  .pf { font-size:19px; font-weight:600; color:#f7e9b0; text-shadow:0 1px 1px #000; animation:pfUp 1s ease-out forwards; }
+  .pf.neg { color:#ff6a5e; }
+  @keyframes pfUp { 0%{opacity:0; transform:translateY(8px);} 15%{opacity:1;} 80%{opacity:1;} 100%{opacity:0; transform:translateY(-12px);} }
+
+  #ammoBlock { position:absolute; right:38px; bottom:26px; text-align:right; }
+  #weaponName { font-size:20px; letter-spacing:2px; color:#c9beae; text-transform:uppercase; opacity:.85; }
+  #ammo { font-size:46px; font-weight:700; color:#e8dfcf; text-shadow:0 2px 2px #000; }
+  #ammo .res { font-size:26px; color:#9a917f; }
+  #ammo.low { color:#ff5a4d; }
+  #reloadHint { font-size:16px; letter-spacing:3px; color:#ff5a4d; text-transform:uppercase; opacity:0; }
+  #reloadHint.show { opacity:1; animation:blink 1s infinite; }
+  @keyframes blink { 50%{opacity:.25;} }
+
+  #perksRow { position:absolute; right:40px; bottom:130px; display:flex; gap:8px; flex-direction:row-reverse; }
+  .perkIcon { width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-family:'Pirata One',serif; font-size:22px; color:#fff; border:2px solid rgba(255,255,255,.35); box-shadow:0 0 10px rgba(0,0,0,.6), inset 0 0 8px rgba(0,0,0,.5); text-shadow:0 1px 2px #000; }
+
+  #prompt { position:absolute; left:50%; top:58%; transform:translateX(-50%); font-size:22px; letter-spacing:1px; color:#f2ead8; text-shadow:0 1px 3px #000; background:rgba(10,8,6,.55); padding:8px 18px; border:1px solid rgba(255,255,255,.14); display:none; white-space:nowrap; }
+  #prompt b { color:#f7d774; }
+  #msg { position:absolute; left:50%; top:24%; transform:translateX(-50%); font-size:24px; letter-spacing:2px; color:#f7d774; text-shadow:0 2px 4px #000; opacity:0; transition:opacity .3s; text-transform:uppercase; }
+
+  #waveBanner { position:absolute; left:0; right:0; top:33%; text-align:center; font-family:'Pirata One',serif; font-size:120px; color:#a31111; text-shadow:0 0 30px rgba(163,17,17,.8), 0 3px 4px #000; opacity:0; pointer-events:none; }
+  #waveBanner.show { animation:wave 3.4s ease forwards; }
+  @keyframes wave { 0%{opacity:0; transform:scale(1.6); filter:blur(6px);} 18%{opacity:1; transform:scale(1); filter:blur(0);} 80%{opacity:1;} 100%{opacity:0; transform:scale(.96);} }
+
+  #vignette { position:absolute; inset:0; pointer-events:none; box-shadow:inset 0 0 180px rgba(0,0,0,.85); }
+  #bloodOverlay { position:absolute; inset:0; pointer-events:none; opacity:0; background:radial-gradient(ellipse at center, rgba(120,0,0,0) 42%, rgba(120,0,0,.55) 78%, rgba(80,0,0,.85) 100%); }
+
+  /* ---------- Hotbar / Inventory (MC style) ---------- */
+  #hotbar { position:absolute; left:50%; bottom:14px; transform:translateX(-50%); display:flex; padding:3px; background:rgba(10,10,12,.72); border:2px solid #000; box-shadow:inset 0 0 0 2px #3a3a3e, 0 2px 8px rgba(0,0,0,.6); }
+  .slot { width:56px; height:56px; position:relative; background:#1f1f23; border:2px solid; border-color:#0c0c0e #4a4a50 #4a4a50 #0c0c0e; box-sizing:border-box; }
+  .slot img { width:100%; height:100%; object-fit:contain; display:none; }
+  .slot .cnt { position:absolute; right:3px; bottom:1px; font-size:15px; font-weight:700; color:#fff; text-shadow:1px 1px 0 #000, -1px 1px 0 #000; font-family:'Barlow Condensed',sans-serif; }
+  .slot.sel { border-color:#fff; box-shadow:inset 0 0 0 2px #fff, 0 0 10px rgba(255,255,255,.35); z-index:1; }
+  .slot.pap { box-shadow:inset 0 0 12px rgba(160,70,255,.8); }
+  .slot.sel.pap { box-shadow:inset 0 0 0 2px #fff, inset 0 0 12px rgba(160,70,255,.8); }
+  #invPanel { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:6; background:rgba(0,0,0,.45); overflow:auto; }
+  #invInner { background:#2a2a2e; border:3px solid; border-color:#4e4e55 #101013 #101013 #4e4e55; padding:16px 18px; box-shadow:0 10px 40px rgba(0,0,0,.7); }
+  #invInner h3 { font-family:'Barlow Condensed',sans-serif; font-size:20px; letter-spacing:3px; color:#d8cdb8; text-transform:uppercase; margin-bottom:10px; }
+  .invGrid { display:grid; grid-template-columns:repeat(9, 56px); }
+  .invHotRow { display:grid; grid-template-columns:repeat(9, 56px); margin-top:12px; }
+  #invPanel .slot { cursor:pointer; }
+  #invPanel .slot:hover { background:#33333a; }
+  #heldGhost { position:fixed; width:52px; height:52px; pointer-events:none; display:none; z-index:7; filter:drop-shadow(0 2px 6px rgba(0,0,0,.8)); }
+  #heldGhost img { width:100%; height:100%; object-fit:contain; }
+  #invInner { display:flex; flex-wrap:wrap; max-width:min(96vw, 1080px); max-height:94vh; overflow:auto; gap:26px; align-items:flex-start; }
+  #craftWrap { display:flex; gap:20px; align-items:flex-start; }
+  #craftLeft { width:190px; }
+  #craftGrid { display:grid; grid-template-columns:repeat(2,56px); }
+  #craftGrid.bench, #craftGrid.anvil { grid-template-columns:repeat(3,56px); }
+  #craftArrowRow { display:flex; align-items:center; gap:12px; margin-top:12px; }
+  #craftArrow { font-size:26px; color:#8a7f6a; }
+  #craftResult.canCraft { border-color:#4dff7a; box-shadow:inset 0 0 0 2px #4dff7a; cursor:pointer; }
+  #recipeBar { width:255px; max-height:430px; overflow-y:auto; }
+  .recipeBtn { display:flex; gap:10px; width:100%; align-items:center; background:#1f1f23; border:2px solid; border-color:#4a4a50 #0c0c0e #0c0c0e #4a4a50; padding:6px 8px; margin-bottom:6px; cursor:pointer; color:#d8cdb8; font-family:'Barlow Condensed',sans-serif; text-align:left; }
+  .recipeBtn:hover { background:#2c2c33; }
+  .recipeBtn.off { opacity:.38; cursor:default; }
+  .recipeBtn img { width:40px; height:40px; object-fit:contain; flex:none; }
+  .recipeBtn b { font-size:17px; display:block; letter-spacing:.5px; }
+  .recipeBtn i { font-size:13.5px; font-style:normal; color:#8a8172; display:block; line-height:1.25; }
+  #fuelWrap { position:absolute; right:40px; bottom:200px; width:16px; height:130px; display:none; flex-direction:column; justify-content:flex-end; background:rgba(10,10,12,.7); border:2px solid #000; box-shadow:inset 0 0 0 1px #3a3a3e; }
+  #fuelFill { width:100%; height:0%; background:#3fa7c8; }
+  #fuelLabel { position:absolute; right:-4px; top:-22px; font-size:13px; letter-spacing:2px; color:#9a917f; }
+  #craftBar { position:fixed; left:50%; bottom:94px; transform:translateX(-50%); width:360px; display:none; z-index:5; text-align:center; }
+  #craftLabel { font-family:'Barlow Condensed',sans-serif; font-size:17px; letter-spacing:3px; color:#f7d774; text-shadow:0 1px 2px #000; margin-bottom:6px; }
+  #craftTrack { height:10px; background:rgba(10,10,12,.75); border:2px solid #000; box-shadow:inset 0 0 0 1px #3a3a3e; }
+  #craftFill { height:100%; width:0%; background:linear-gradient(90deg,#b8860b,#f7d774); }
+  #libLink { margin-top:26px; font-size:17px; letter-spacing:2px; color:#8a7f6a; text-decoration:none; border-bottom:1px dotted #6b6355; padding-bottom:2px; pointer-events:auto; }
+  #libLink:hover { color:#d8cdb8; }
+
+  /* ---------- Overlays ---------- */
+  .overlay { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:radial-gradient(ellipse at center, rgba(14,11,9,.86) 0%, rgba(4,3,2,.96) 100%); z-index:10; }
+  .overlay h1 { font-family:'Pirata One',serif; font-size:clamp(60px, 9vw, 120px); color:#b81414; text-shadow:0 0 40px rgba(184,20,20,.5), 0 4px 3px #000; letter-spacing:2px; }
+  .overlay .sub { font-size:20px; letter-spacing:6px; color:#b6a992; text-transform:uppercase; margin:6px 0 34px; }
+  .bigbtn { pointer-events:auto; cursor:pointer; font-family:'Barlow Condensed',sans-serif; font-size:26px; font-weight:700; letter-spacing:4px; text-transform:uppercase; color:#f2ead8; background:#4a0d0d; border:1px solid #8a2020; padding:14px 58px; transition:all .15s; }
+  .bigbtn:hover { background:#6d1414; box-shadow:0 0 24px rgba(184,20,20,.45); }
+  #controls { margin-top:38px; display:grid; grid-template-columns:auto auto; gap:6px 22px; font-size:17px; color:#9a917f; letter-spacing:1px; align-items:start; }
+  #controls span { line-height:1.3; max-width:300px; }
+  #controls b { color:#d8cdb8; font-weight:600; text-align:right; display:block; }
+  #deadOverlay { display:none; }
+  #deadOverlay h1 { color:#8a0f0f; }
+  #survStats { font-size:24px; color:#c9beae; letter-spacing:2px; margin-bottom:30px; }
+  #pauseOverlay { display:none; background:rgba(0,0,0,.6); }
+  #pauseOverlay h2 { font-family:'Pirata One',serif; font-size:54px; color:#c9beae; margin-bottom:20px; }
+  #loadNote { position:fixed; left:50%; bottom:22px; transform:translateX(-50%); color:#6b6355; font-size:15px; letter-spacing:2px; z-index:11; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+
+<div id="hud">
+  <div id="crosshair"></div>
+  <div id="hitmarker"><span></span><span></span><span></span><span></span></div>
+  <div id="roundLabel">Round</div>
+  <div id="round">1</div>
+  <div id="pointsVal">500</div>
+  <div id="pointsFeed"></div>
+  <div id="ammoBlock">
+    <div id="weaponName">Mauser C96</div>
+    <div id="ammo">10 <span class="res">/ 80</span></div>
+    <div id="reloadHint">Reload — R</div>
+  </div>
+  <div id="perksRow"></div>
+  <div id="fuelWrap"><span id="fuelLabel">FUEL</span><div id="fuelFill"></div></div>
+  <div id="hotbar"></div>
+  <div id="prompt"></div>
+  <div id="msg"></div>
+  <div id="waveBanner">Round 1</div>
+  <div id="bloodOverlay"></div>
+  <div id="vignette"></div>
+</div>
+
+<div id="invPanel"><div id="invInner"><div id="invLeft"><h3>Inventory</h3><div class="invGrid"></div><div class="invHotRow"></div></div></div></div>
+<div id="craftBar"><div id="craftLabel">ITEM CRAFTING</div><div id="craftTrack"><div id="craftFill"></div></div></div>
+<div id="heldGhost"><img draggable="false"></div>
+
+<div id="menuOverlay" class="overlay">
+  <h1>UNDEAD BUNKER</h1>
+  <div class="sub">Wave Survival &nbsp;·&nbsp; A Nacht-style homage</div>
+  <button id="startBtn" class="bigbtn">Enter the Bunker</button>
+  <div id="controls">
+    <b>WASD</b><span>Move · Shift sprint</span>
+    <b>Mouse</b><span>Fire / Place · RMB aim / remove</span>
+    <b>1–9</b><span>Hotbar · scroll to cycle</span>
+    <b>E</b><span>Inventory</span>
+    <b>R</b><span>Reload</span>
+    <b>F</b><span>Interact · Enter car · Gather · Rebuild</span>
+    <b>Space</b><span>Jetpack (craft it first)</span>
+  </div>
+  <a id="libLink" href="Asset Library.html">View the 3D Asset Library →</a>
+</div>
+
+<div id="deadOverlay" class="overlay">
+  <h1>YOU DIED</h1>
+  <div id="survStats">Survived 1 round</div>
+  <button id="restartBtn" class="bigbtn">Try Again</button>
+</div>
+
+<div id="pauseOverlay" class="overlay">
+  <h2>PAUSED</h2>
+  <button id="resumeBtn" class="bigbtn">Resume</button>
+</div>
+
+<div id="loadNote">loading…</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/weapons.js"></script>
+<script src="js/zombies.js"></script>
+<script src="js/car.js"></script>
+<script src="js/map.js"></script>
+<script src="js/pap.js"></script>
+<script src="js/build.js"></script>
+<script src="js/crafting.js"></script>
+<script src="js/inventory.js"></script>
+<script src="js/player.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>

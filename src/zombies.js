@@ -1,83 +1,382 @@
 import * as THREE from 'three';
-import { moveEntity, raycastColliders } from './physics.js';
+import { raycastColliders } from './physics.js';
+import { groundHeightAt } from './physics.js';
 import { audio } from './audio.js';
 
-// Wave-based zombie horde. Zombies share the player's collision code, so the
-// same step-up logic that lets you climb stairs lets them chase you up.
+// Undead Bunker zombies (per design/digests/zombies.md):
+// states toWindow → tearing → vault → hunt → dead, room-portal pathing,
+// articulated rig with elbows/knees, board ripping, 1.15s vault arc.
 
-const TYPES = {
-  walker: { hp: 100, speed: 1.9, scale: 1.0, reach: 1.45, dmg: 14, color: 0x5b7a4a, attackCd: 1.15, points: 60 },
-  runner: { hp: 62, speed: 4.4, scale: 0.92, reach: 1.35, dmg: 10, color: 0x7a7a4a, attackCd: 0.9, points: 80 },
-  brute:  { hp: 460, speed: 1.5, scale: 1.45, reach: 1.9, dmg: 30, color: 0x4a3f52, attackCd: 1.6, points: 200 },
-};
+const SKIN = [0x8a9a7b, 0x96a186, 0x7d8a6f, 0xa8a28c, 0x8f9c8f];
+const SHIRT = [0x4a4438, 0x3d3a33, 0x52493a, 0x37413b, 0x4d4032];
+const PANTS = [0x33302b, 0x3a352c, 0x2c2c30, 0x403a2e];
 
-let nextId = 1;
+let ZID = 0;
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-function buildZombie(type, bloodMoon) {
-  const t = TYPES[type];
-  const g = new THREE.Group();
-  const s = t.scale;
-
-  const skinHue = new THREE.Color(t.color).offsetHSL((Math.random() - 0.5) * 0.06, 0, (Math.random() - 0.5) * 0.1);
-  const skin = new THREE.MeshStandardMaterial({ color: skinHue, roughness: 0.95 });
-  const cloth = new THREE.MeshStandardMaterial({
-    color: new THREE.Color().setHSL(Math.random(), 0.25, 0.16 + Math.random() * 0.12), roughness: 1,
+export function makeZombieBody(bloodMoon = false) {
+  const skin = new THREE.MeshStandardMaterial({ color: pick(SKIN), roughness: 0.9 });
+  const shirt = new THREE.MeshStandardMaterial({ color: pick(SHIRT), roughness: 0.95 });
+  const pants = new THREE.MeshStandardMaterial({ color: pick(PANTS), roughness: 0.95 });
+  const gore = new THREE.MeshStandardMaterial({ color: 0x4a0d08, roughness: 0.85 });
+  const eyeMat = new THREE.MeshStandardMaterial({
+    color: 0x221100, emissive: bloodMoon ? 0xff3020 : 0xffb340, emissiveIntensity: 1.6,
   });
-  const mats = [skin, cloth];
+  const boots = new THREE.MeshStandardMaterial({ color: 0x1d1a16, roughness: 0.9 });
+  const mats = [skin, shirt, pants, gore, eyeMat, boots];
 
-  const mk = (w, h, d, mat, part) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w * s, h * s, d * s), mat);
+  const hitMeshes = [];
+  const mk = (w, h, d, mat, parent, x, y, z, part) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
     m.castShadow = true;
-    m.userData.part = part;
+    parent.add(m);
+    if (part) { m.userData.part = part; hitMeshes.push(m); }
     return m;
   };
 
-  // torso (pivot at hips)
-  const torso = mk(0.62, 0.78, 0.34, cloth, 'body');
-  torso.position.y = 1.12 * s;
-  g.add(torso);
+  const root = new THREE.Group();
+  const hips = new THREE.Group(); hips.position.y = 0.92; root.add(hips);
+  const torso = new THREE.Group(); hips.add(torso);
+  const neck = new THREE.Group(); neck.position.y = 0.62; torso.add(neck);
 
-  // head
-  const headPivot = new THREE.Group();
-  headPivot.position.y = 1.51 * s;
-  const head = mk(0.4, 0.4, 0.4, skin, 'head');
-  head.position.y = 0.2 * s;
-  headPivot.add(head);
-  // glowing eyes
-  const eyeMat = new THREE.MeshBasicMaterial({ color: bloodMoon ? 0xff2211 : 0xaaff33 });
-  for (const ex of [-0.09, 0.09]) {
-    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.07 * s, 0.05 * s, 0.02 * s), eyeMat);
-    eye.position.set(ex * s, 0.24 * s, -0.2 * s);
-    eye.userData.part = 'head';
-    headPivot.add(eye);
+  mk(0.44, 0.55, 0.24, shirt, torso, 0, 0.32, 0, 'body');
+  mk(0.4, 0.18, 0.22, skin, torso, 0, 0.02, 0, 'body');
+  mk(0.2, 0.16, 0.02, gore, torso, 0.08, 0.3, 0.125);
+  const head = mk(0.24, 0.28, 0.26, skin, neck, 0, 0.16, 0, 'head');
+  const jaw = mk(0.2, 0.08, 0.2, skin, neck, 0, 0.02, 0.02, 'head');
+  const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.028, 8, 6), eyeMat);
+  eyeL.position.set(-0.06, 0.19, 0.13); neck.add(eyeL);
+  const eyeR = eyeL.clone(); eyeR.position.x = 0.06; neck.add(eyeR);
+  const headGore = mk(0.1, 0.12, 0.02, gore, neck, -0.07, 0.2, 0.132);
+
+  const arm = (side) => {
+    const sh = new THREE.Group(); sh.position.set(0.28 * side, 0.52, 0); torso.add(sh);
+    const upper = mk(0.12, 0.34, 0.13, shirt, sh, 0, -0.16, 0, 'limb');
+    const el = new THREE.Group(); el.position.y = -0.33; sh.add(el);
+    const fore = mk(0.1, 0.32, 0.11, skin, el, 0, -0.15, 0, 'limb');
+    const hand = mk(0.11, 0.1, 0.12, skin, el, 0, -0.34, 0, 'limb');
+    return { sh, el, meshes: [upper, fore, hand] };
+  };
+  const leg = (side) => {
+    const hip = new THREE.Group(); hip.position.set(0.12 * side, -0.02, 0); hips.add(hip);
+    const thigh = mk(0.16, 0.42, 0.17, pants, hip, 0, -0.22, 0, 'limb');
+    const kn = new THREE.Group(); kn.position.y = -0.44; hip.add(kn);
+    const shin = mk(0.13, 0.4, 0.14, pants, kn, 0, -0.2, 0, 'limb');
+    const boot = mk(0.14, 0.09, 0.24, boots, kn, 0, -0.42, 0.04, 'limb');
+    return { hip, kn, meshes: [thigh, shin, boot] };
+  };
+
+  const parts = {
+    root, hips, torso, neck,
+    armL: arm(-1), armR: arm(1), legL: leg(-1), legR: leg(1),
+    headMeshes: [head, jaw, eyeL, eyeR, headGore],
+  };
+  return { root, parts, hitMeshes, mats };
+}
+
+export class Zombie {
+  constructor(win, opts, manager) {
+    this.id = ++ZID;
+    this.mgr = manager;
+    this.win = win;
+    this.hp = opts.hp;
+    this.maxHp = opts.hp;
+    this.speed = opts.speed;
+
+    const body = makeZombieBody(opts.bloodMoon);
+    this.mesh = body.root;
+    this.parts = body.parts;
+    this.hitMeshes = body.hitMeshes;
+    this.mats = body.mats;
+    this.scale = 0.95 + Math.random() * 0.14;
+    this.mesh.scale.setScalar(this.scale);
+    for (const m of this.hitMeshes) m.userData.zombie = this;
+
+    this.pos = win.spawn.clone();
+    this.pos.x += (Math.random() - 0.5) * 1.5;
+    this.pos.z += (Math.random() - 0.5) * 1.5;
+    this.mesh.position.copy(this.pos);
+
+    this.state = 'toWindow';
+    this.t = Math.random() * 10;
+    this.tearTimer = 0.8 + Math.random() * 0.8;
+    this.attackCd = 0;
+    this.attackAnim = 0;
+    this.attackPending = 0; // windup timer (replaces prototype setTimeout — pausable)
+    this.vaultT = 0;
+    this.deadT = 0;
+    this.repathT = 0;
+    this.chain = null;
+    this.groanT = 1 + Math.random() * 4;
+    this.radius = 0.32;
+    this.alive = true;
+    this.dead = false;
+
+    manager.scene.add(this.mesh);
   }
-  g.add(headPivot);
 
-  // arms (pivot at shoulders)
-  const arms = [];
-  for (const side of [-1, 1]) {
-    const pivot = new THREE.Group();
-    pivot.position.set(side * 0.4 * s, 1.44 * s, 0);
-    const arm = mk(0.16, 0.66, 0.16, Math.random() < 0.5 ? skin : cloth, 'body');
-    arm.position.y = -0.3 * s;
-    pivot.add(arm);
-    g.add(pivot);
-    arms.push(pivot);
+  // prototype-style horizontal collision: skip steppable (top within 0.5 of
+  // feet) and overhead (bottom above feet+1.6) solids, slide per-axis
+  _hits(x, z) {
+    for (const s of this.mgr.world.colliders) {
+      if (s.maxY - this.pos.y < 0.5 || s.minY > this.pos.y + 1.6) continue;
+      if (x + this.radius > s.minX && x - this.radius < s.maxX &&
+          z + this.radius > s.minZ && z - this.radius < s.maxZ) return true;
+    }
+    return false;
   }
 
-  // legs (pivot at hips)
-  const legs = [];
-  for (const side of [-1, 1]) {
-    const pivot = new THREE.Group();
-    pivot.position.set(side * 0.16 * s, 0.76 * s, 0);
-    const leg = mk(0.2, 0.74, 0.2, cloth, 'legs');
-    leg.position.y = -0.37 * s;
-    pivot.add(leg);
-    g.add(pivot);
-    legs.push(pivot);
+  _move(dx, dz) {
+    if (!this._hits(this.pos.x + dx, this.pos.z)) this.pos.x += dx;
+    if (!this._hits(this.pos.x, this.pos.z + dz)) this.pos.z += dz;
   }
 
-  return { group: g, headPivot, head, arms, legs, torso, mats, eyeMat };
+  face(tx, tz, dt, rate = 6) {
+    const want = Math.atan2(tx - this.pos.x, tz - this.pos.z);
+    let d = want - this.mesh.rotation.y;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    this.mesh.rotation.y += d * Math.min(1, dt * rate);
+  }
+
+  stepToward(tx, tz, dt, spd) {
+    let dx = tx - this.pos.x, dz = tz - this.pos.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > 0.0001) { dx /= dist; dz /= dist; }
+    // separation
+    for (const o of this.mgr.zombies) {
+      if (o === this || o.dead || !o.alive) continue;
+      if (Math.abs(o.pos.y - this.pos.y) > 1.5) continue;
+      const sx = this.pos.x - o.pos.x, sz = this.pos.z - o.pos.z;
+      const d2 = sx * sx + sz * sz;
+      if (d2 < 0.45 && d2 > 0.0001) {
+        const d = Math.sqrt(d2);
+        dx += (sx / d) * 0.55;
+        dz += (sz / d) * 0.55;
+      }
+    }
+    const n = Math.hypot(dx, dz);
+    if (n > 0.0001) { dx /= n; dz /= n; }
+    this._move(dx * spd * dt, dz * spd * dt);
+    this.face(this.pos.x + dx, this.pos.z + dz, dt);
+    return dist;
+  }
+
+  walkAnim(dt, spd) {
+    this.t += dt * (2.2 + spd * 2.2);
+    const p = this.parts;
+    const s = Math.sin(this.t), c = Math.cos(this.t);
+    p.legL.hip.rotation.x = s * 0.55;
+    p.legR.hip.rotation.x = -s * 0.55;
+    p.legL.kn.rotation.x = Math.max(0, -c) * 0.9;
+    p.legR.kn.rotation.x = Math.max(0, c) * 0.9;
+    p.hips.position.y = 0.92 + Math.abs(c) * 0.03;
+    p.torso.rotation.x = 0.22 + s * 0.03;
+    p.torso.rotation.z = Math.sin(this.t * 0.5) * 0.06;
+    p.neck.rotation.x = -0.15;
+    p.neck.rotation.z = Math.sin(this.t * 0.3 + this.id) * 0.12;
+  }
+
+  armsReach(amt, dt) {
+    const p = this.parts;
+    const k = Math.min(1, dt * 5);
+    const tgt = -1.35 * amt - 0.25;
+    p.armL.sh.rotation.x += (tgt - p.armL.sh.rotation.x) * k;
+    p.armR.sh.rotation.x += (tgt + Math.sin(this.t * 1.7) * 0.1 * amt - p.armR.sh.rotation.x) * k;
+    p.armL.el.rotation.x += (-0.25 * (1 - amt) - p.armL.el.rotation.x) * k;
+    p.armR.el.rotation.x += (-0.25 * (1 - amt) - p.armR.el.rotation.x) * k;
+  }
+
+  update(dt) {
+    const mgr = this.mgr;
+    const P = mgr.player;
+    const world = mgr.world;
+
+    if (this.state !== 'dead') {
+      this.groanT -= dt;
+      if (this.groanT <= 0) {
+        this.groanT = 3 + Math.random() * 6;
+        audio.zombieGroan(this.pos.distanceTo(P.pos));
+      }
+    }
+
+    switch (this.state) {
+      case 'toWindow': {
+        const d = this.stepToward(this.win.outer.x, this.win.outer.z, dt, this.speed * 0.9);
+        this.walkAnim(dt, this.speed);
+        this.armsReach(0, dt);
+        if (d < 0.55) {
+          this.state = this.win.boards.some((b) => b.on) ? 'tearing' : 'vault0';
+        }
+        break;
+      }
+      case 'tearing': {
+        this.face(this.win.inner.x, this.win.inner.z, dt);
+        this.t += dt * 6;
+        const p = this.parts;
+        p.armL.sh.rotation.x = -1.6 + Math.sin(this.t) * 0.5;
+        p.armR.sh.rotation.x = -1.6 + Math.sin(this.t + Math.PI) * 0.5;
+        p.torso.rotation.x = 0.15 + Math.sin(this.t) * 0.06;
+        this.tearTimer -= dt;
+        const onBoards = this.win.boards.filter((b) => b.on);
+        if (this.tearTimer <= 0 && onBoards.length) {
+          this.tearTimer = 1.4 + Math.random() * 0.9;
+          world.ripBoard(this.win, onBoards[onBoards.length - 1]);
+          audio.boardRip();
+          if (mgr.onBoards) mgr.onBoards(this.win);
+        }
+        if (!this.win.boards.some((b) => b.on) && Math.random() < dt * 2) this.state = 'vault0';
+        break;
+      }
+      case 'vault0': {
+        this.vaultFrom = this.pos.clone();
+        this.vaultT = 0;
+        this.state = 'vault';
+        audio.vaultThud();
+        break;
+      }
+      case 'vault': {
+        this.vaultT += dt / 1.15;
+        const k = Math.min(1, this.vaultT);
+        this.pos.x = THREE.MathUtils.lerp(this.vaultFrom.x, this.win.inner.x, k);
+        this.pos.z = THREE.MathUtils.lerp(this.vaultFrom.z, this.win.inner.z, k);
+        this.pos.y = this.vaultFrom.y + (this.win.floorY - this.vaultFrom.y) * k + Math.sin(k * Math.PI) * 0.6;
+        const p = this.parts;
+        p.torso.rotation.x = 0.9 * Math.sin(k * Math.PI);
+        p.legL.hip.rotation.x = -1.2 * Math.sin(k * Math.PI);
+        p.legR.hip.rotation.x = -0.8 * Math.sin(k * Math.PI);
+        this.armsReach(1, dt);
+        this.face(this.win.inner.x, this.win.inner.z, dt, 10);
+        if (k >= 1) { this.state = 'hunt'; this.pos.y = this.win.floorY; }
+        break;
+      }
+      case 'hunt': {
+        this.repathT -= dt;
+        if (this.repathT <= 0) {
+          this.repathT = 0.5;
+          const myRoom = world.roomAt(this.pos);
+          const pRoom = world.roomAt(P.pos);
+          if (myRoom !== pRoom) {
+            this.chain = world.pathChain(myRoom, pRoom);
+            while (this.chain && this.chain.length > 1 &&
+                   Math.hypot(this.chain[0].x - this.pos.x, this.chain[0].z - this.pos.z) < 1.2 &&
+                   Math.abs(this.chain[0].y - this.pos.y) < 1.2) {
+              this.chain.shift();
+            }
+          } else this.chain = null;
+        }
+        let tx = P.pos.x, tz = P.pos.z;
+        if (this.chain && this.chain.length) {
+          const wp = this.chain[0];
+          if (Math.hypot(wp.x - this.pos.x, wp.z - this.pos.z) < 0.8 && Math.abs(wp.y - this.pos.y) < 1.2) {
+            this.chain.shift();
+            if (!this.chain.length) this.repathT = 0;
+          }
+          if (this.chain.length) { tx = this.chain[0].x; tz = this.chain[0].z; }
+        }
+        const distP = Math.hypot(P.pos.x - this.pos.x, P.pos.z - this.pos.z);
+        const spd = this.speed * (distP < 3 ? 1.12 : 1);
+        this.stepToward(tx, tz, dt, spd);
+        this.walkAnim(dt, spd);
+        this.armsReach(distP < 4 ? 1 : (this.speed > 2.4 ? 0.8 : 0.15), dt);
+
+        // floor snap
+        const g = groundHeightAt(world.colliders, this.pos.x, this.pos.z, this.pos.y, this.radius, 1.7);
+        this.pos.y += (g - this.pos.y) * Math.min(1, dt * 10);
+
+        // attack (LOS-checked so claws don't reach through walls)
+        this.attackCd -= dt;
+        if (distP < 1.7 && this.attackCd <= 0 && Math.abs(P.pos.y - this.pos.y) < 1.6 && !P.dead && this._losToPlayer()) {
+          this.attackCd = 1.15;
+          this.attackAnim = 0.4;
+          this.attackPending = 0.28;
+          audio.attackSnarl(Math.min(1, 3.5 / Math.max(1, distP)));
+        }
+        if (this.attackPending > 0) {
+          this.attackPending -= dt;
+          if (this.attackPending <= 0 && !this.dead && !P.dead) {
+            const d2 = Math.hypot(P.pos.x - this.pos.x, P.pos.z - this.pos.z);
+            if (d2 < 2.0 && this._losToPlayer()) {
+              P.takeDamage(mgr.hitDamage);
+              audio.zombieBite();
+              if (mgr.onHurtPlayer) mgr.onHurtPlayer(this);
+            }
+          }
+        }
+        if (this.attackAnim > 0) {
+          this.attackAnim -= dt;
+          const k = Math.max(0, this.attackAnim / 0.4);
+          this.parts.armR.sh.rotation.x = -1.9;
+          this.parts.armR.sh.rotation.z = -1.2 * Math.sin(k * Math.PI);
+          this.parts.torso.rotation.y = 0.4 * Math.sin(k * Math.PI);
+        } else {
+          this.parts.armR.sh.rotation.z *= 0.9;
+          this.parts.torso.rotation.y *= 0.9;
+        }
+        break;
+      }
+      case 'dead': {
+        this.deadT += dt;
+        const k = Math.min(1, this.deadT * 2.4);
+        this.mesh.rotation.x = (-Math.PI / 2) * k * this.deadDir;
+        this.parts.hips.position.y = 0.92 - k * 0.55;
+        if (this.deadT > 3.2) this.mesh.position.y -= dt * 0.35;
+        if (this.deadT > 4.5) this.dispose();
+        break;
+      }
+    }
+
+    if (this.state !== 'dead') this.mesh.position.copy(this.pos);
+    else { this.mesh.position.x = this.pos.x; this.mesh.position.z = this.pos.z; }
+  }
+
+  _losToPlayer() {
+    const from = this.pos.clone(); from.y += 1.2 * this.scale;
+    const to = this.mgr.player.pos.clone(); to.y += 1.2;
+    const dir = to.sub(from);
+    const dist = dir.length();
+    if (dist < 0.01) return true;
+    dir.normalize();
+    return raycastColliders(this.mgr.world.shotSolids, from, dir, dist) === Infinity;
+  }
+
+  takeDamage(dmg, part, hitPoint, dir) {
+    if (this.dead) return null;
+    this.hp -= dmg;
+    this.mgr.effects.blood(hitPoint, dir || new THREE.Vector3(0, 0.4, 0), part === 'head' ? 14 : 7, 5, this.pos.y);
+    this.mgr.effects.damageNumber(hitPoint, dmg, part === 'head');
+    if (Math.random() < 0.35) this.mgr.effects.bloodDecal(this.pos.x, this.pos.z, this.pos.y + 0.02, 0.55);
+    if (part === 'head') audio.headshot(); else audio.hit();
+    if (this.hp <= 0) {
+      this.die(part === 'head');
+      return { killed: true, head: part === 'head' };
+    }
+    return { killed: false, head: part === 'head' };
+  }
+
+  die(headshot) {
+    this.state = 'dead';
+    this.dead = true;
+    this.deadT = 0;
+    this.deadDir = Math.random() < 0.5 ? 1 : -1;
+    if (headshot) {
+      for (const m of this.parts.headMeshes) m.visible = false;
+      const at = this.mesh.position.clone(); at.y += 1.6 * this.scale;
+      this.mgr.effects.gib(at, this.pos.y);
+    }
+    this.mgr.effects.bloodDecal(this.pos.x, this.pos.z, this.pos.y + 0.02, 1.3);
+    for (const m of this.hitMeshes) m.userData.zombie = null;
+    audio.kill();
+    if (this.mgr.onKill) this.mgr.onKill(this, headshot);
+  }
+
+  dispose() {
+    this.alive = false;
+    this.mgr.scene.remove(this.mesh);
+    this.mesh.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
+    for (const m of this.mats) m.dispose();
+  }
 }
 
 export class ZombieManager {
@@ -86,332 +385,80 @@ export class ZombieManager {
     this.world = world;
     this.player = player;
     this.effects = effects;
-
     this.zombies = [];
-    this.wave = 0;
-    this.bloodMoon = false;
-    this.toSpawn = 0;
-    this.spawnTimer = 0;
-    this.maxAlive = 22;
-
     this.raycaster = new THREE.Raycaster();
-
-    this.onKill = null;      // (zombie, part) => void
+    this.hitDamage = 22;
+    this.onKill = null;        // (zombie, headshot)
     this.onHurtPlayer = null;
-    this.onRemainingChange = null;
+    this.onBoards = null;
   }
 
-  get aliveCount() { return this.zombies.filter(z => !z.dead).length; }
-  get remaining() { return this.toSpawn + this.aliveCount; }
+  get aliveCount() { return this.zombies.filter((z) => !z.dead).length; }
 
-  startWave(wave) {
-    this.wave = wave;
-    this.bloodMoon = wave % 5 === 0;
-    this.toSpawn = 5 + wave * 2 + (this.bloodMoon ? 4 : 0);
-    this.spawnTimer = 0.5;
-    this.hpMult = 1 + (wave - 1) * 0.11;
-    this.speedMult = (1 + Math.min(0.5, (wave - 1) * 0.045)) * (this.bloodMoon ? 1.25 : 1);
-  }
-
-  _pickType() {
-    const w = this.wave;
-    const r = Math.random();
-    if (w >= 4 && r < Math.min(0.16, 0.05 + w * 0.012) * (this.bloodMoon ? 1.8 : 1)) return 'brute';
-    if (w >= 2 && r < 0.18 + Math.min(0.25, w * 0.03)) return 'runner';
-    return 'walker';
-  }
-
-  _spawnOne() {
-    const type = this._pickType();
-    const def = TYPES[type];
-    const built = buildZombie(type, this.bloodMoon);
-
-    // spawn at a point far-ish from the player
-    const sps = this.world.spawnPoints;
-    let sp = sps[Math.floor(Math.random() * sps.length)];
-    for (let tries = 0; tries < 6; tries++) {
-      sp = sps[Math.floor(Math.random() * sps.length)];
-      if (sp.distanceTo(this.player.pos) > 14) break;
-    }
-
-    const z = {
-      id: nextId++,
-      type, def,
-      hp: def.hp * this.hpMult,
-      maxHp: def.hp * this.hpMult,
-      pos: new THREE.Vector3(sp.x + (Math.random() - 0.5) * 2, 0, sp.z + (Math.random() - 0.5) * 2),
-      vel: new THREE.Vector3(),
-      radius: 0.34 * def.scale,
-      // collision height capped below the 2.4m chapel door lintels so brutes
-      // (visual scale 1.45) can duck inside and reach you
-      height: Math.min(2.25, 1.72 * def.scale),
-      speed: def.speed * this.speedMult * (0.88 + Math.random() * 0.24),
-      state: 'rising',
-      stateTime: 0,
-      walkPhase: Math.random() * 10,
-      attackCd: 0,
-      groanTimer: 1 + Math.random() * 6,
-      blockedTime: 0,
-      steerSide: Math.random() < 0.5 ? 1 : -1,
-      steerUntil: 0,
-      flinch: 0,
-      dead: false,
-      headGone: false,
-      ...built,
-    };
-    z.group.position.copy(z.pos);
-    z.group.position.y -= z.height; // starts underground
-    this.scene.add(z.group);
-    this.effects.dirtBurst(z.pos.clone().setY(z.pos.y + 0.2));
+  // main picks the window (design: weighted 1/(4+dist) toward the player)
+  spawnAt(win, opts) {
+    const z = new Zombie(win, opts, this);
     this.zombies.push(z);
+    return z;
   }
 
-  // Ray vs zombie body parts. Returns { zombie, point, part } or null.
   raycast(origin, dir, maxDist) {
     this.raycaster.set(origin, dir);
     this.raycaster.far = maxDist;
     const targets = [];
     for (const z of this.zombies) {
-      if (!z.dead && z.state !== 'rising') targets.push(z.group);
+      if (!z.dead && (z.state === 'hunt' || z.state === 'tearing' || z.state === 'vault' || z.state === 'toWindow')) {
+        targets.push(z.mesh);
+      }
     }
     if (!targets.length) return null;
     const hits = this.raycaster.intersectObjects(targets, true);
     for (const h of hits) {
-      let part = h.object.userData.part;
-      if (!part) continue;
-      let node = h.object;
-      while (node && !node.userData.zombieId) node = node.parent;
-      // find owner by walking up to a registered group
-      const z = this.zombies.find(zz => {
-        let n = h.object;
-        while (n) { if (n === zz.group) return true; n = n.parent; }
-        return false;
-      });
-      if (z && !z.dead) return { zombie: z, point: h.point.clone(), part };
+      const part = h.object.userData.part;
+      const zombie = h.object.userData.zombie;
+      if (part && zombie && !zombie.dead) return { zombie, point: h.point.clone(), part };
     }
     return null;
   }
 
-  // Straight line from the zombie's chest to the player's chest, unblocked?
-  _canReachPlayer(z) {
-    const from = z.pos.clone();
-    from.y += z.height * 0.6;
-    const to = this.player.pos.clone();
-    to.y += 1.2;
-    const dir = to.sub(from);
-    const dist = dir.length();
-    if (dist < 0.01) return true;
-    dir.normalize();
-    return raycastColliders(this.world.colliders, from, dir, dist) === Infinity;
-  }
-
-  _dispose(z) {
-    z.group.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
-    for (const m of z.mats) m.dispose();
-    z.eyeMat.dispose();
-  }
-
+  // weapons call this with FINAL damage (head/limb multipliers already applied)
   damage(z, dmg, part, dir, point) {
-    if (z.dead) return;
-    z.hp -= dmg;
-    z.flinch = Math.min(1, z.flinch + dmg / z.maxHp * 2);
+    return z.takeDamage(dmg, part === 'blast' ? 'body' : part, point, dir);
+  }
 
-    this.effects.blood(point, dir, part === 'head' ? 20 : 12, 5, z.pos.y);
-    this.effects.damageNumber(point, dmg, part === 'head');
-    if (Math.random() < 0.4) {
-      this.effects.bloodDecal(z.pos.x + (Math.random() - 0.5), z.pos.z + (Math.random() - 0.5), z.pos.y + 0.02, 0.55);
-    }
-    if (part === 'head') audio.headshot(); else audio.hit();
-
-    // heavy hits shove
-    z.vel.addScaledVector(dir.clone().setY(0).normalize(), dmg * 0.02);
-
-    if (z.hp <= 0) {
-      this._kill(z, part, dir);
+  blastDamage(center, radius, dmg, onHit) {
+    for (const z of this.zombies) {
+      if (z.dead) continue;
+      const c = z.pos.clone(); c.y += 0.9;
+      const d = c.distanceTo(center);
+      if (d < radius) {
+        const scaled = dmg * (1 - (d / radius) * 0.55);
+        if (onHit) onHit(z, scaled);
+        z.takeDamage(scaled, 'body', c, c.clone().sub(center).normalize());
+      }
     }
   }
 
-  _kill(z, part, dir) {
-    z.dead = true;
-    z.state = 'dying';
-    z.stateTime = 0;
-    z.deathDir = dir ? dir.clone().setY(0).normalize() : new THREE.Vector3(0, 0, 1);
-
-    if (part === 'head') {
-      z.headGone = true;
-      const headPos = new THREE.Vector3();
-      z.head.getWorldPosition(headPos);
-      this.effects.gib(headPos, z.pos.y);
-      z.headPivot.visible = false;
+  // trap calls this
+  zoneDamage(zone, dps, dt) {
+    for (const z of this.zombies) {
+      if (z.dead || z.state !== 'hunt') continue;
+      if (z.pos.x > zone.x0 && z.pos.x < zone.x1 && z.pos.z > zone.z0 && z.pos.z < zone.z1) {
+        z.takeDamage(dps * dt, 'body', z.pos.clone().setY(z.pos.y + 1), new THREE.Vector3(0, 1, 0));
+      }
     }
-    this.effects.bloodDecal(z.pos.x, z.pos.z, z.pos.y + 0.02, z.def.scale * 1.6);
-    audio.kill();
-    if (this.onKill) this.onKill(z, part);
-    if (this.onRemainingChange) this.onRemainingChange();
   }
 
   update(dt) {
-    // spawning
-    if (this.toSpawn > 0) {
-      this.spawnTimer -= dt;
-      if (this.spawnTimer <= 0 && this.aliveCount < this.maxAlive) {
-        this._spawnOne();
-        this.toSpawn--;
-        this.spawnTimer = Math.max(0.25, 1.4 - this.wave * 0.08);
-        if (this.onRemainingChange) this.onRemainingChange();
-      }
-    }
-
-    const playerPos = this.player.pos;
-
     for (let i = this.zombies.length - 1; i >= 0; i--) {
       const z = this.zombies[i];
-      z.stateTime += dt;
-      z.flinch *= Math.exp(-6 * dt);
-
-      // ---- dying / cleanup ----
-      if (z.dead) {
-        const t = Math.min(1, z.stateTime / 0.45);
-        z.group.rotation.x = -t * Math.PI / 2 * 0.96;
-        z.group.position.y = z.pos.y + Math.sin(t * Math.PI / 2) * 0.15;
-        if (z.stateTime > 0.45) {
-          for (const m of z.mats) { m.transparent = true; m.opacity = Math.max(0, 1 - (z.stateTime - 0.45) / 2); }
-          z.eyeMat.transparent = true;
-          z.eyeMat.opacity = Math.max(0, 1 - (z.stateTime - 0.45) / 2);
-        }
-        if (z.stateTime > 2.6) {
-          this.scene.remove(z.group);
-          this._dispose(z);
-          this.zombies.splice(i, 1);
-        }
-        continue;
-      }
-
-      // ---- rising from the grave ----
-      if (z.state === 'rising') {
-        const t = Math.min(1, z.stateTime / 1.1);
-        z.group.position.copy(z.pos);
-        z.group.position.y = z.pos.y - z.height * (1 - t * t);
-        if (Math.random() < 0.12) this.effects.smoke(z.pos.clone().setY(z.pos.y + 0.15), 1);
-        if (t >= 1) { z.state = 'chase'; z.stateTime = 0; }
-        continue;
-      }
-
-      // ---- groans ----
-      z.groanTimer -= dt;
-      if (z.groanTimer <= 0) {
-        z.groanTimer = 3 + Math.random() * 8;
-        audio.zombieGroan(z.pos.distanceTo(playerPos), z.type === 'brute');
-      }
-
-      const toPlayer = playerPos.clone().sub(z.pos);
-      const distXZ = Math.hypot(toPlayer.x, toPlayer.z);
-      const dy = playerPos.y - z.pos.y;
-
-      // ---- attack ----
-      z.attackCd = Math.max(0, z.attackCd - dt);
-      if (z.state === 'attack') {
-        if (z.stateTime > 0.42) {
-          // strike lands (LOS-checked so claws don't reach through walls)
-          if (distXZ < z.def.reach + 0.35 && Math.abs(dy) < 1.7 && !this.player.dead && this._canReachPlayer(z)) {
-            this.player.takeDamage(z.def.dmg * (this.bloodMoon ? 1.2 : 1));
-            audio.zombieBite();
-            if (this.onHurtPlayer) this.onHurtPlayer(z);
-          }
-          z.state = 'chase';
-          z.stateTime = 0;
-          z.attackCd = z.def.attackCd;
-        }
-      } else if (distXZ < z.def.reach && Math.abs(dy) < 1.6 && z.attackCd <= 0 && !this.player.dead && this._canReachPlayer(z)) {
-        z.state = 'attack';
-        z.stateTime = 0;
-      }
-
-      // ---- steering ----
-      let desired = new THREE.Vector3(toPlayer.x, 0, toPlayer.z).normalize();
-
-      // wall-following when stuck (lets them find doors + stair entrances)
-      if (performance.now() / 1000 < z.steerUntil) {
-        desired.applyAxisAngle(new THREE.Vector3(0, 1, 0), z.steerSide * 1.15);
-      }
-
-      // separation from other zombies
-      for (const o of this.zombies) {
-        if (o === z || o.dead) continue;
-        const dx = z.pos.x - o.pos.x, dz = z.pos.z - o.pos.z;
-        const d2 = dx * dx + dz * dz;
-        const minD = (z.radius + o.radius) * 1.6;
-        if (d2 < minD * minD && d2 > 0.0001) {
-          const d = Math.sqrt(d2);
-          desired.x += (dx / d) * (1 - d / minD) * 1.4;
-          desired.z += (dz / d) * (1 - d / minD) * 1.4;
-        }
-      }
-      desired.normalize();
-
-      const speed = z.state === 'attack' ? z.speed * 0.25 : z.speed * (1 - z.flinch * 0.7);
-      z.vel.x += (desired.x * speed - z.vel.x) * Math.min(1, 8 * dt);
-      z.vel.z += (desired.z * speed - z.vel.z) * Math.min(1, 8 * dt);
-
-      const before = z.pos.clone();
-      const res = moveEntity(this.world.colliders, z.pos, z.vel, dt, z.radius, z.height, this.world.bounds);
-      const moved = before.distanceTo(z.pos);
-
-      // stuck detection → engage wall-following for a while
-      if (res.hitWall && moved < speed * dt * 0.35 && z.state === 'chase') {
-        z.blockedTime += dt;
-        if (z.blockedTime > 0.4) {
-          z.steerUntil = performance.now() / 1000 + 0.7 + Math.random() * 0.5;
-          if (Math.random() < 0.3) z.steerSide *= -1;
-          z.blockedTime = 0;
-        }
-      } else {
-        z.blockedTime = Math.max(0, z.blockedTime - dt * 2);
-      }
-
-      // ---- pose the model ----
-      z.group.position.copy(z.pos);
-      const facing = Math.atan2(toPlayer.x, toPlayer.z);
-      let da = facing - z.group.rotation.y;
-      while (da > Math.PI) da -= Math.PI * 2;
-      while (da < -Math.PI) da += Math.PI * 2;
-      z.group.rotation.y += da * Math.min(1, 7 * dt);
-      z.group.rotation.x = 0;
-
-      const hSpeed = Math.hypot(z.vel.x, z.vel.z);
-      z.walkPhase += dt * (2.4 + hSpeed * 2.1);
-      const swing = Math.sin(z.walkPhase);
-
-      // shamble: legs swing, torso lurches, head lolls
-      z.legs[0].rotation.x = swing * 0.65;
-      z.legs[1].rotation.x = -swing * 0.65;
-      z.torso.rotation.x = 0.14 + Math.sin(z.walkPhase * 2) * 0.05;
-      z.torso.rotation.z = Math.sin(z.walkPhase * 0.5) * 0.08;
-      if (!z.headGone) {
-        z.headPivot.rotation.z = Math.sin(z.walkPhase * 0.7 + z.id) * 0.14;
-        z.headPivot.rotation.x = Math.sin(z.walkPhase * 0.4) * 0.1 - z.flinch * 0.5;
-      }
-
-      if (z.state === 'attack') {
-        const t = z.stateTime / 0.42;
-        const raise = Math.sin(Math.min(1, t) * Math.PI);
-        z.arms[0].rotation.x = -1.2 - raise * 1.2;
-        z.arms[1].rotation.x = -1.2 - raise * 1.2;
-      } else {
-        // classic zombie arms out front
-        z.arms[0].rotation.x = -1.25 + Math.sin(z.walkPhase + 1) * 0.18;
-        z.arms[1].rotation.x = -1.25 + Math.sin(z.walkPhase + 2.4) * 0.18;
-        z.arms[0].rotation.z = 0.12; z.arms[1].rotation.z = -0.12;
-      }
+      z.update(dt);
+      if (!z.alive) this.zombies.splice(i, 1);
     }
   }
 
   clear() {
-    for (const z of this.zombies) {
-      this.scene.remove(z.group);
-      this._dispose(z);
-    }
+    for (const z of this.zombies) z.dispose();
     this.zombies = [];
-    this.toSpawn = 0;
   }
 }

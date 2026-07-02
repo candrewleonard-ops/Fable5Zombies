@@ -3,110 +3,116 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FABLE 5: ZOMBIES</title>
+  <title>FABLE 5: UNDEAD BUNKER</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E🧟%3C/text%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Pirata+One&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div id="game"></div>
 
   <!-- HUD -->
-  <div id="hud" class="hidden">
-    <div id="crosshair">
-      <span class="ch-line ch-t"></span><span class="ch-line ch-b"></span>
-      <span class="ch-line ch-l"></span><span class="ch-line ch-r"></span>
-      <span class="ch-dot"></span>
-    </div>
-    <div id="hitmarker">✕</div>
+  <div id="hud">
+    <div id="crosshair"></div>
+    <div id="hitmarker"><span></span><span></span><span></span><span></span></div>
 
-    <div id="vignette"></div>
-    <div id="damage-flash"></div>
+    <div id="roundLabel">Round</div>
+    <div id="round">1</div>
+    <div id="pointsVal">500</div>
+    <div id="pointsFeed"></div>
 
-    <div id="top-bar">
-      <div id="wave-pill">WAVE <span id="wave-num">1</span></div>
-      <div id="zombies-pill"><span id="zombies-left">0</span> LEFT</div>
-      <div id="points-pill"><span id="points">0</span> PTS</div>
+    <div id="ammoBlock">
+      <div id="weaponName">Mauser C96</div>
+      <div id="ammo">10 <span class="res">/ 80</span></div>
+      <div id="reloadHint">Reload — R</div>
     </div>
 
-    <div id="bottom-left">
-      <div id="health-wrap">
-        <div id="health-bar"><div id="health-fill"></div></div>
-        <div id="health-num">100</div>
-      </div>
-      <div id="armor-wrap">
-        <div id="armor-bar"><div id="armor-fill"></div></div>
-        <div id="armor-num">0</div>
-      </div>
-    </div>
-
-    <div id="bottom-right">
-      <div id="weapon-name">M1911</div>
-      <div id="ammo"><span id="ammo-mag">8</span><span id="ammo-sep">/</span><span id="ammo-reserve">64</span></div>
-      <div id="reload-hint">R TO RELOAD</div>
-    </div>
+    <div id="perksRow"></div>
+    <div id="armorWrap"><span id="armorLabel">ARMOR</span><div id="armorFill"></div></div>
+    <div id="fuelWrap"><span id="fuelLabel">FUEL</span><div id="fuelFill"></div></div>
 
     <div id="hotbar"></div>
-
-    <div id="killfeed"></div>
-    <div id="wave-banner" class="hidden"></div>
-    <div id="pickup-toast"></div>
-    <div id="slowmo-tint"></div>
+    <div id="prompt"></div>
+    <div id="msg"></div>
+    <div id="waveBanner">Round 1</div>
+    <div id="bloodOverlay"></div>
+    <div id="vignette"></div>
   </div>
 
-  <!-- Minecraft-style inventory (press T) -->
-  <div id="inventory-screen" class="hidden">
-    <div id="inventory-panel">
-      <div id="inv-title">INVENTORY</div>
-      <div id="inv-left">
-        <div id="armor-col">
-          <div class="armor-slot slot" data-armor="helmet"   title="Helmet"><span class="slot-ghost">⛑</span></div>
-          <div class="armor-slot slot" data-armor="chest"    title="Chestplate"><span class="slot-ghost">🦺</span></div>
-          <div class="armor-slot slot" data-armor="legs"     title="Leggings"><span class="slot-ghost">👖</span></div>
-          <div class="armor-slot slot" data-armor="boots"    title="Boots"><span class="slot-ghost">🥾</span></div>
+  <!-- Inventory + crafting (T) -->
+  <div id="invPanel">
+    <div id="invInner">
+      <div id="invLeft">
+        <h3>INVENTORY</h3>
+        <div id="invPaperRow">
+          <div id="armorCol">
+            <div class="slot armor-slot" data-armor="helmet" title="Helmet"><span class="slot-ghost">⛑</span></div>
+            <div class="slot armor-slot" data-armor="chest" title="Chestplate"><span class="slot-ghost">🦺</span></div>
+            <div class="slot armor-slot" data-armor="legs" title="Leggings"><span class="slot-ghost">👖</span></div>
+            <div class="slot armor-slot" data-armor="boots" title="Boots"><span class="slot-ghost">🥾</span></div>
+          </div>
+          <div id="paperdoll-wrap"><canvas id="paperdoll" width="180" height="244"></canvas></div>
+          <div id="statsCol">
+            <div class="stat-row"><span>HP</span><b id="inv-hp">100</b></div>
+            <div class="stat-row"><span>ARMOR</span><b id="inv-armor">0</b></div>
+            <div class="stat-row"><span>ROUND</span><b id="inv-round">1</b></div>
+            <div class="stat-row"><span>KILLS</span><b id="inv-kills">0</b></div>
+          </div>
         </div>
-        <div id="paperdoll-wrap">
-          <canvas id="paperdoll" width="220" height="300"></canvas>
-        </div>
-        <div id="stats-col">
-          <div class="stat-row"><span>HP</span><b id="inv-hp">100</b></div>
-          <div class="stat-row"><span>ARMOR</span><b id="inv-armor">0</b></div>
-          <div class="stat-row"><span>SPEED</span><b id="inv-speed">100%</b></div>
-          <div class="stat-row"><span>KILLS</span><b id="inv-kills">0</b></div>
-        </div>
+        <div class="invGrid"></div>
+        <div class="invHotRow"></div>
+        <div id="invHint">Drag items · Right-click armor to equip · T to close</div>
       </div>
-      <div id="inv-grid"></div>
-      <div id="inv-hotbar-row"></div>
-      <div id="inv-hint">Drag items • Right-click armor to equip • Right-click medkit to use • T to close</div>
+      <div id="invRight">
+        <h3 id="craftTitle">CRAFTING (2×2)</h3>
+        <div id="craftArea">
+          <div id="craftGrid"></div>
+          <div id="craftArrow">→</div>
+          <div id="craftResult" class="slot"></div>
+        </div>
+        <h4>RECIPES</h4>
+        <div id="recipeBar"></div>
+      </div>
     </div>
   </div>
-  <div id="drag-ghost" class="hidden"></div>
+  <div id="heldGhost"></div>
   <div id="item-tooltip" class="hidden"></div>
 
-  <!-- Menus -->
-  <div id="menu">
-    <div class="menu-inner">
-      <h1 class="glitch" data-text="FABLE 5">FABLE 5</h1>
-      <h2>Z O M B I E S</h2>
-      <button id="play-btn">ENTER THE NIGHT</button>
-      <div id="controls-card">
-        <div><kbd>W A S D</kbd> move</div>
-        <div><kbd>MOUSE</kbd> aim &nbsp; <kbd>LMB</kbd> shoot &nbsp; <kbd>RMB</kbd> aim down sights</div>
-        <div><kbd>Q</kbd> / <kbd>E</kbd> lean &amp; shoot around corners</div>
-        <div><kbd>SHIFT</kbd> sprint &nbsp; <kbd>SPACE</kbd> jump &nbsp; <kbd>R</kbd> reload</div>
-        <div><kbd>T</kbd> inventory &nbsp; <kbd>1-5</kbd> hotbar &nbsp; <kbd>F</kbd> quick medkit</div>
-      </div>
-    </div>
+  <!-- craft progress -->
+  <div id="craftBar">
+    <div id="craftLabel">ITEM CRAFTING</div>
+    <div id="craftTrack"><div id="craftFill"></div></div>
   </div>
 
-  <div id="death-screen" class="hidden">
-    <div class="menu-inner">
-      <h1 class="blood-title">YOU DIED</h1>
-      <div id="death-stats"></div>
-      <button id="restart-btn">RISE AGAIN</button>
+  <!-- Overlays -->
+  <div id="menuOverlay" class="overlay">
+    <h1>UNDEAD BUNKER</h1>
+    <div class="sub">FABLE 5 · Wave Survival · A Nacht-style homage</div>
+    <button id="startBtn" class="bigbtn">Enter the Bunker</button>
+    <div id="controls">
+      <b>WASD</b><span>Move · Shift sprint</span>
+      <b>Mouse</b><span>Fire / Place · RMB aim / remove</span>
+      <b>Q / E</b><span>Lean — swerve &amp; shoot around corners</span>
+      <b>1–9</b><span>Hotbar · scroll to cycle</span>
+      <b>T</b><span>Inventory &amp; crafting</span>
+      <b>R</b><span>Reload</span>
+      <b>F</b><span>Interact · Enter car · Gather · Hold to rebuild</span>
+      <b>Space</b><span>Jump · Jetpack (craft it first)</span>
     </div>
+    <a id="libLink" href="/library.html">View the 3D Asset Library →</a>
   </div>
 
-  <div id="pause-hint" class="hidden">CLICK TO RESUME</div>
+  <div id="deadOverlay" class="overlay">
+    <h1>YOU DIED</h1>
+    <div id="survStats">Survived 1 round</div>
+    <button id="restartBtn" class="bigbtn">Try Again</button>
+  </div>
+
+  <div id="pauseOverlay" class="overlay">
+    <h2>PAUSED</h2>
+    <button id="resumeBtn" class="bigbtn">Resume</button>
+  </div>
 
   <script type="module" src="/src/main.js"></script>
 </body>
