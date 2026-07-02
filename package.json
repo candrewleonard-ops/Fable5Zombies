@@ -1,0 +1,25 @@
+{
+  "name": "fable5-zombies",
+  "version": "1.0.0",
+  "description": "FABLE 5: ZOMBIES — a wave-based zombies FPS in the browser",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:41729/git/candrewleonard-ops/Fable5Zombies"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "three": "^0.185.1",
+    "vite": "^8.1.2"
+  },
+  "type": "module",
+  "devDependencies": {
+    "playwright": "^1.61.1"
+  }
+}
