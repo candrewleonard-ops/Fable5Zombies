@@ -666,9 +666,11 @@ export function createWorld(scene) {
   boxMesh(3.2, 0.1, 0.1, MAT.woodDark, -8, 3.75, 28.45, { solid: false, cast: false });
   boxMesh(3.2, 0.1, 0.1, MAT.woodDark, -8, 3.75, 31.55, { solid: false, cast: false });
   boxMesh(0.1, 0.1, 3.2, MAT.woodDark, -9.55, 3.75, 30, { solid: false, cast: false });
-  for (let i = 0; i < 8; i++) {
-    const h = 0.35 * (i + 1);
-    boxMesh(0.38, h, 1.2, MAT.wood, -4.6 - i * 0.36, h / 2, 30);
+  // 6 steps ending just outside the platform slab so the headroom-checked
+  // step-up can mount the deck (slab spans x -9.6..-6.4)
+  for (let i = 0; i < 6; i++) {
+    const h = 0.43 * (i + 1);
+    boxMesh(0.38, h, 1.2, MAT.wood, -4.4 - i * 0.36, h / 2, 30);
   }
 
   // lanterns

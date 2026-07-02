@@ -133,7 +133,9 @@ export class Player {
     // ---- jetpack ----
     const thrusting = this.jetpack && jetThrust && this.jetFuel > 0;
     if (thrusting) {
-      this.vel.y = Math.min(this.vel.y + 20 * dt, 4.4);
+      // +20 m/s² ramp to 4.4 (design) — moveEntity subtracts gravity (22),
+      // so compensate to get the design's net upward ramp
+      this.vel.y = Math.min(this.vel.y + (20 + 22) * dt, 4.4 + 22 * dt);
       this.jetFuel = Math.max(0, this.jetFuel - 18 * dt);
       this._jetSnd -= dt;
       if (this._jetSnd <= 0) { this._jetSnd = 0.12; audio.jet(); }
