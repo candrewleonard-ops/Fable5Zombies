@@ -1,4 +1,5 @@
-import { ARMOR_TIERS, WEAPONS, weaponDef, RECIPES, makeWeaponItem } from './items.js';
+import { ARMOR_TIERS, GRADES, weaponDef, RECIPES, ENCHANTS, ENCHANT_TIERS, enchantLabel } from './items.js';
+import { gunCardHTML } from './guncard.js';
 import { audio } from './audio.js';
 
 // 36-slot Minecraft-style inventory (9 hotbar + 27 grid) on T, with armor
@@ -36,6 +37,7 @@ export class Inventory {
     this.craftResultEl = document.getElementById('craftResult');
     this.recipeBarEl = document.getElementById('recipeBar');
     this.craftTitleEl = document.getElementById('craftTitle');
+    this.enchantBarEl = document.getElementById('enchantBar');
 
     this._buildSlots();
     this._bindEvents();
@@ -80,6 +82,10 @@ export class Inventory {
 
   _bindEvents() {
     this.panel.addEventListener('mousedown', (e) => {
+      const ench = e.target.closest('[data-ench]');
+      if (ench) { this._enchant(Number(ench.dataset.ench)); return; }
+      const steelBtn = e.target.closest('#steelReinforce');
+      if (steelBtn) { this._steelReinforce(); return; }
       const slot = e.target.closest('.slot');
       const recipe = e.target.closest('.recipeBtn');
       if (recipe) { this._clickRecipe(recipe.dataset.key); return; }
@@ -115,6 +121,7 @@ export class Inventory {
 
     if (rightClick && !this.carried) {
       if (cur?.kind === 'armor' && container !== 'armor') { this._equipArmor(container, index); return; }
+      if (cur?.tint) { this._applyTint(container, index, cur); return; }
       return;
     }
 
@@ -152,6 +159,47 @@ export class Inventory {
     this._set(container, index, prev || null);
     audio.equip();
     this._afterChange();
+  }
+
+  // right-click a tint: paints the first un-tinted equipped armor piece
+  _applyTint(container, index, tintItem) {
+    const target = ARMOR_SLOTS.map((s) => this.armor[s]).find((it) => it && !it.tint);
+    if (!target) { audio.deny(); return; }
+    target.tint = tintItem.tint;
+    const label = tintItem.tint === 'gucci' ? 'Gucci' : tintItem.tint === 'onyx' ? 'Onyx' : 'Gilded';
+    target.name = `${label} ${target.name}`;
+    tintItem.count--;
+    if (tintItem.count <= 0) this._set(container, index, null);
+    audio.perkJingle();
+    this._afterChange();
+  }
+
+  // tint bonuses (main applies): points multiplier + speed multiplier
+  tintBonuses() {
+    let pts = 1, speed = 1, gucci = 0;
+    for (const s of ARMOR_SLOTS) {
+      const it = this.armor[s];
+      if (!it?.tint) continue;
+      if (it.tint === 'gucci') { pts += 0.25; gucci++; }
+      else if (it.tint === 'gilded') pts += 0.10;
+      else if (it.tint === 'onyx') speed += 0.05;
+    }
+    if (gucci >= 4) { speed += 0.15; pts += 0.25; } // full Gucci set bonus
+    return { pts, speed };
+  }
+
+  // Q-drop: take one (or the whole stack) from the selected hotbar slot
+  takeDrop(wholeStack = false) {
+    const item = this.slots[this.sel];
+    if (!item) return null;
+    if (item.stack > 1 && item.count > 1 && !wholeStack) {
+      item.count--;
+      this._afterChange();
+      return { ...item, count: 1 };
+    }
+    this.slots[this.sel] = null;
+    this._afterChange();
+    return item;
   }
 
   // ---------- armor durability (Fable 5) ----------
@@ -293,6 +341,68 @@ export class Inventory {
     }
   }
 
+  // ---------- anvil enchanting ----------
+  // Put a weapon/armor in the anvil's first grid cell, then pay:
+  //   2,500 → 1 enchantment · 5,000 → 2 · 10,000 → 3 (hotter level rolls)
+  _enchant(tierIdx) {
+    const item = this.craftGrid[0];
+    const conf = ENCHANT_TIERS[tierIdx];
+    if (!item || (item.kind !== 'weapon' && item.kind !== 'armor')) { audio.deny(); return; }
+    if (!this.cb.spendPoints || !this.cb.spendPoints(conf.cost)) { audio.deny(); return; }
+    const pool = ENCHANTS[item.kind];
+    item.ench = [];
+    for (let i = 0; i < conf.count; i++) {
+      const e = pool[Math.floor(Math.random() * pool.length)];
+      const roll = Math.min(1, Math.random() * (1 - conf.bias) + conf.bias + Math.random() * conf.bias);
+      const lvl = Math.max(1, Math.min(e.max, Math.ceil(roll * e.max)));
+      const existing = item.ench.find((x) => x.key === e.key);
+      if (existing) existing.lvl = Math.min(e.max, Math.max(existing.lvl, lvl));
+      else item.ench.push({ key: e.key, lvl });
+    }
+    if (item.kind === 'armor') {
+      item.baseArmor = item.baseArmor || item.armor;
+      const prot = item.ench.find((x) => x.key === 'protection')?.lvl || 0;
+      const frac = (item.remaining ?? item.armor) / item.armor;
+      item.armor = Math.round(item.baseArmor * (1 + 0.1 * prot));
+      item.remaining = item.armor * frac;
+    }
+    item.enchanted = true;
+    audio.enchant();
+    if (this.cb.onEnchanted) this.cb.onEnchanted(item);
+    this._afterChange();
+  }
+
+  // 2 steel → toughen + repair the armor piece on the anvil
+  _steelReinforce() {
+    const item = this.craftGrid[0];
+    if (!item || item.kind !== 'armor') { audio.deny(); return; }
+    if (this.countOf('steel') < 2) { audio.deny(); return; }
+    this.consume('steel', 2);
+    item.baseArmor = item.baseArmor || item.armor;
+    item.armor = Math.min(Math.round(item.baseArmor * 2.5), Math.round(item.armor * 1.12));
+    item.remaining = Math.min(item.armor, (item.remaining ?? 0) + item.armor * 0.4);
+    audio.enchant();
+    this._afterChange();
+  }
+
+  _renderEnchantBar() {
+    if (this.craftMode !== 'anvil') { this.enchantBarEl.innerHTML = ''; this.enchantBarEl.style.display = 'none'; return; }
+    this.enchantBarEl.style.display = 'block';
+    const item = this.craftGrid[0];
+    const ok = item && (item.kind === 'weapon' || item.kind === 'armor');
+    const enchNow = ok && item.ench?.length ? `<div class="enchList">${item.ench.map(enchantLabel).join(' · ')}</div>` : '';
+    this.enchantBarEl.innerHTML =
+      `<div class="enchTitle">ENCHANT ${ok ? `— <b>${item.name}</b>` : '(place a weapon or armor in the first anvil cell)'}</div>` +
+      enchNow +
+      `<div class="enchBtns">
+        <button data-ench="0" ${ok ? '' : 'disabled'}>I — 2,500</button>
+        <button data-ench="1" ${ok ? '' : 'disabled'}>II — 5,000</button>
+        <button data-ench="2" ${ok ? '' : 'disabled'}>III — 10,000</button>
+        ${ok && item.kind === 'armor' ? `<button id="steelReinforce" ${this.countOf('steel') >= 2 ? '' : 'disabled'}>+ Steel (2) — toughen</button>` : ''}
+      </div>` +
+      `<div class="enchDesc">Weapons roll Damage I–V / Speed I–III · Armor rolls Protection I–V / Endurance I–V. Pricier rites roll hotter.</div>`;
+  }
+
   _resultGhost() {
     if (!this.craftMatch) return null;
     const r = this.craftMatch;
@@ -389,8 +499,10 @@ export class Inventory {
       el.innerHTML = item
         ? this._slotHTML(item)
         : (el.dataset.ghost ? `<span class="slot-ghost">${el.dataset.ghost}</span>` : '');
-      el.classList.remove('item-rarity-1', 'item-rarity-2', 'item-rarity-3', 'pap');
+      el.classList.remove('item-rarity-1', 'item-rarity-2', 'item-rarity-3', 'pap',
+        'grade-uncommon', 'grade-rare', 'grade-epic', 'grade-legendary');
       if (item?.rarity) el.classList.add(`item-rarity-${item.rarity}`);
+      if (item?.grade && item.grade !== 'common') el.classList.add(`grade-${item.grade}`);
       if (item?.pap) el.classList.add('pap');
     }
     // craft grid sizing per mode
@@ -400,7 +512,8 @@ export class Inventory {
     for (let i = 0; i < 9; i++) cells[i].style.display = i < n ? '' : 'none';
     this.craftTitleEl.textContent =
       this.craftMode === 'bench' ? 'CRAFTING BENCH (3×3)' :
-      this.craftMode === 'anvil' ? 'ANVIL' : 'CRAFTING (2×2)';
+      this.craftMode === 'anvil' ? 'ANVIL — FORGE & ENCHANT' : 'CRAFTING (2×2)';
+    this._renderEnchantBar();
 
     // recipes bar
     this.recipeBarEl.innerHTML = '';
@@ -442,17 +555,24 @@ export class Inventory {
     const slot = e.target.closest('.slot');
     const item = slot ? this._get(slot.dataset.container, slot.dataset.index) : null;
     if (!item || this.carried) { this.tooltipEl.classList.add('hidden'); return; }
-    const tierColor = item.rarity ? ARMOR_TIERS[item.rarity].css : (item.pap ? '#c99aff' : '#e8dfcf');
-    this.tooltipEl.innerHTML =
-      `<div class="tt-name" style="color:${tierColor}">${item.name}</div>` +
-      `<div class="tt-desc">${item.desc || ''}</div>` +
-      (item.kind === 'weapon' && item.mag !== undefined
-        ? `<div class="tt-stat">${item.mag} in mag · ${item.reserve} reserve</div>` : '') +
-      (item.kind === 'armor'
-        ? `<div class="tt-stat">${Math.ceil(item.remaining ?? item.armor)}/${item.armor} durability</div>` : '');
+    if (item.kind === 'weapon') {
+      // full Borderlands-style stat card for guns
+      this.tooltipEl.innerHTML = `<div class="tt-card">${gunCardHTML(item)}</div>` +
+        `<div class="tt-stat">${item.mag} in mag · ${item.reserve} reserve</div>`;
+    } else {
+      const tierColor = item.grade ? GRADES[item.grade].css
+        : item.rarity ? ARMOR_TIERS[item.rarity].css : (item.pap ? '#c99aff' : '#e8dfcf');
+      this.tooltipEl.innerHTML =
+        `<div class="tt-name" style="color:${tierColor}">${item.name}</div>` +
+        `<div class="tt-desc">${item.desc || ''}</div>` +
+        (item.kind === 'armor'
+          ? `<div class="tt-stat">${Math.ceil(item.remaining ?? item.armor)}/${item.armor} durability</div>` : '') +
+        (item.ench?.length ? `<div class="tt-ench">${item.ench.map(enchantLabel).join(' · ')}</div>` : '') +
+        (item.tint ? `<div class="tt-ench">Tinted: ${item.tint}</div>` : '');
+    }
     this.tooltipEl.classList.remove('hidden');
-    this.tooltipEl.style.left = Math.min(window.innerWidth - 270, e.clientX + 16) + 'px';
-    this.tooltipEl.style.top = (e.clientY + 14) + 'px';
+    this.tooltipEl.style.left = Math.min(window.innerWidth - 320, e.clientX + 16) + 'px';
+    this.tooltipEl.style.top = Math.min(window.innerHeight - 330, e.clientY + 14) + 'px';
   }
 
   reset() {

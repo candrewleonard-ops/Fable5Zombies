@@ -69,7 +69,7 @@ export class Player {
   }
 
   get speedMult() {
-    return (this.perks.has('fleet') ? 1.17 : 1);
+    return (this.perks.has('fleet') ? 1.17 : 1) * (this.tintSpeed || 1);
   }
 
   onMouseMove(dx, dy) {
@@ -221,6 +221,7 @@ export class Player {
 
   takeDamage(dmg) {
     if (this.dead) return;
+    if (this.perks.has('ironhide')) dmg *= 0.8;
     this.timeSinceHurt = 0;
     if (this.armor > 0) {
       const absorbed = Math.min(this.armor, dmg * 0.65);

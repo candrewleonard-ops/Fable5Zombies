@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { raycastColliders, groundHeightAt } from './physics.js';
 import { audio } from './audio.js';
+import { buildRadioSetModels } from './laptop.js';
 
 // Fortnite-style wood building (digests/build.md): 2m grid, 2.4m vertical
 // module, surface snap, 90° yaw snap, green/red ghost. Placed pieces become
@@ -67,6 +68,22 @@ function pieceBoxes(piece, cx, y0, cz, f) {
     case 'anvil':
       box(cx - 0.45, cx + 0.45, y0, y0 + 0.66, cz - 0.3, cz + 0.3);
       break;
+    case 'block':
+    case 'gblock':
+      box(cx - 0.5, cx + 0.5, y0, y0 + 1, cz - 0.5, cz + 0.5, true);
+      break;
+    case 'cabinet':
+      box(cx - 0.5, cx + 0.5, y0, y0 + 0.92, cz - 0.35, cz + 0.35, true);
+      break;
+    case 'countertop':
+      box(cx - 0.55, cx + 0.55, y0, y0 + 0.12, cz - 0.4, cz + 0.4, true);
+      break;
+    case 'radio':
+      box(cx - 0.9, cx + 0.9, y0, y0 + 0.85, cz - 0.5, cz + 0.5);
+      break;
+    case 'nucleartable':
+      box(cx - 0.8, cx + 0.8, y0, y0 + 1.0, cz - 0.5, cz + 0.5);
+      break;
   }
   return boxes;
 }
@@ -106,6 +123,51 @@ function buildBenchModel() {
   return g;
 }
 
+function buildCabinetModel() {
+  const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.8 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x3e2c18, roughness: 0.9 });
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.9, 0.66), wood);
+  body.position.y = 0.46;
+  body.castShadow = true;
+  g.add(body);
+  for (const s of [-1, 1]) {
+    const door = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.74, 0.03), dark);
+    door.position.set(s * 0.245, 0.44, 0.345);
+    g.add(door);
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8),
+      new THREE.MeshStandardMaterial({ color: 0xc8a742, metalness: 0.9, roughness: 0.3 }));
+    knob.position.set(s * 0.08, 0.44, 0.37);
+    g.add(knob);
+  }
+  return g;
+}
+
+function buildNuclearTableModel() {
+  const g = new THREE.Group();
+  const alloy = new THREE.MeshStandardMaterial({ color: 0x2c3a28, metalness: 0.7, roughness: 0.4 });
+  const glow = new THREE.MeshStandardMaterial({ color: 0x1a3a10, emissive: 0x54ff3a, emissiveIntensity: 1.1, roughness: 0.4 });
+  const top = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.14, 0.95), alloy);
+  top.position.y = 0.9;
+  top.castShadow = true;
+  g.add(top);
+  const strip = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.03, 0.24), glow);
+  strip.position.y = 0.98;
+  g.add(strip);
+  for (const [x, z] of [[-0.62, -0.36], [0.62, -0.36], [-0.62, 0.36], [0.62, 0.36]]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.86, 0.12), alloy);
+    leg.position.set(x, 0.43, z);
+    g.add(leg);
+  }
+  const sym = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.02, 3), glow);
+  sym.position.set(0.45, 0.99, 0.2);
+  g.add(sym);
+  const light = new THREE.PointLight(0x54ff3a, 5, 5, 1.8);
+  light.position.y = 1.5;
+  g.add(light);
+  return g;
+}
+
 function buildAnvilModel() {
   const steel = new THREE.MeshStandardMaterial({ color: 0x393b40, metalness: 0.75, roughness: 0.4 });
   const g = new THREE.Group();
@@ -133,8 +195,11 @@ export class BuildSystem {
     this.camera = camera;
 
     this.woodMat = new THREE.MeshStandardMaterial({ map: plankTex(), roughness: 0.85 });
+    this.stoneMat = new THREE.MeshStandardMaterial({ color: 0x6f6a62, roughness: 0.95 });
+    this.graniteMat = new THREE.MeshStandardMaterial({ color: 0x4a3a36, roughness: 0.35, metalness: 0.1 });
     this.ghostOk = new THREE.MeshBasicMaterial({ color: 0x4dff7a, transparent: true, opacity: 0.38, depthWrite: false });
     this.ghostBad = new THREE.MeshBasicMaterial({ color: 0xff4d4d, transparent: true, opacity: 0.38, depthWrite: false });
+    this.canAfford = null; // (piece) => bool — main wires material costs
 
     this.active = null;
     this.valid = false;
@@ -162,14 +227,18 @@ export class BuildSystem {
     const t = Math.min(5.5, (hitT === Infinity ? 5.5 : hitT) + 0.05);
     const tgt = origin.clone().addScaledVector(dir, Math.max(2, t));
 
-    this.cx = Math.round(tgt.x / GRID) * GRID;
-    this.cz = Math.round(tgt.z / GRID) * GRID;
+    const fine = ['block', 'gblock', 'cabinet', 'countertop', 'radio', 'nucleartable'].includes(this.active);
+    const grid = fine ? 1 : GRID;
+    this.cx = Math.round(tgt.x / grid) * grid;
+    this.cz = Math.round(tgt.z / grid) * grid;
     const surf = groundHeightAt(this.world.colliders, this.cx, this.cz, tgt.y + 0.6, 0.2);
-    this.y0 = (tgt.y - surf < 0.5 && tgt.y - surf > -1.2) ? surf : Math.max(0, Math.round(tgt.y / MODULE) * MODULE);
+    this.y0 = (tgt.y - surf < 0.5 && tgt.y - surf > -1.2) ? surf
+      : fine ? Math.max(0, Math.round(tgt.y)) : Math.max(0, Math.round(tgt.y / MODULE) * MODULE);
     this.f = ((Math.round(this.player.yaw.rotation.y / (Math.PI / 2)) % 4) + 4) % 4;
 
     const boxes = pieceBoxes(this.active, this.cx, this.y0, this.cz, this.f);
-    this.valid = !this._overlapsSolids(boxes) && !this._containsPlayer(boxes) && this.getPoints() >= 50;
+    this.valid = !this._overlapsSolids(boxes) && !this._containsPlayer(boxes) &&
+      (this.canAfford ? this.canAfford(this.active) : true);
 
     const key = `${this.active}|${this.cx}|${this.cz}|${this.y0}|${this.f}|${this.valid}`;
     if (key !== this.ghostKey) {
@@ -208,11 +277,23 @@ export class BuildSystem {
     if (!this.active || !this.valid) { audio.deny(); return null; }
     const boxes = pieceBoxes(this.active, this.cx, this.y0, this.cz, this.f);
     let group;
-    if (this.active === 'bench' || this.active === 'anvil') {
-      group = this.active === 'bench' ? buildBenchModel() : buildAnvilModel();
+    const stationBuilders = {
+      bench: buildBenchModel, anvil: buildAnvilModel,
+      radio: buildRadioSetModels, nucleartable: buildNuclearTableModel,
+    };
+    if (stationBuilders[this.active]) {
+      group = stationBuilders[this.active]();
       group.position.set(this.cx, this.y0, this.cz);
       group.rotation.y = this.f * Math.PI / 2;
       this.stations.push({ kind: this.active, pos: new THREE.Vector3(this.cx, this.y0, this.cz), group });
+    } else if (this.active === 'block') {
+      group = meshFromBoxes(boxes, this.stoneMat);
+    } else if (this.active === 'gblock' || this.active === 'countertop') {
+      group = meshFromBoxes(boxes, this.graniteMat);
+    } else if (this.active === 'cabinet') {
+      group = buildCabinetModel();
+      group.position.set(this.cx, this.y0, this.cz);
+      group.rotation.y = this.f * Math.PI / 2;
     } else {
       group = meshFromBoxes(boxes, this.woodMat);
     }

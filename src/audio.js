@@ -115,6 +115,9 @@ class AudioEngine {
         this._noiseBurst({ peak: 0.75, decay: 0.28, freq: 1000 });
         this._tone({ type: 'sawtooth', from: 170, to: 40, dur: 0.22, peak: 0.4 });
         break;
+      case 'wave':
+        this.wave();
+        break;
     }
   }
 
@@ -306,6 +309,85 @@ class AudioEngine {
 
   jump() { this._noiseBurst({ peak: 0.1, decay: 0.08, freq: 450 }); }
   land() { this._noiseBurst({ peak: 0.2, decay: 0.1, freq: 250 }); }
+
+  // ---- expansion SFX ----
+  flame() { this._noiseBurst({ peak: 0.16, decay: 0.16, freq: 650, filterType: 'bandpass', q: 0.5, rate: 0.8 }); }
+
+  wave() { // W.A.V.E. cannon: deep whump + air shear
+    this._tone({ type: 'sine', from: 60, to: 24, dur: 0.5, peak: 0.55 });
+    this._noiseBurst({ peak: 0.5, decay: 0.45, freq: 480, q: 0.4 });
+    this._tone({ type: 'sawtooth', from: 900, to: 90, dur: 0.35, peak: 0.14 });
+  }
+
+  powerup() {
+    const notes = [660, 880, 1320];
+    notes.forEach((f, i) => this._tone({ type: 'square', from: f, to: f, dur: 0.1, peak: 0.14, delay: i * 0.07 }));
+  }
+
+  berserkRoar() {
+    this._tone({ type: 'sawtooth', from: 90, to: 45, dur: 0.9, peak: 0.5 });
+    this._noiseBurst({ peak: 0.35, decay: 0.7, freq: 300, q: 0.6 });
+  }
+
+  chip(wood = false) {
+    this._noiseBurst({ peak: 0.3, decay: 0.06, freq: wood ? 700 : 2100, filterType: 'bandpass', q: 1.6 });
+    if (!wood) this._tone({ type: 'square', from: 1800, to: 1400, dur: 0.03, peak: 0.08 });
+  }
+
+  treeFall() {
+    this._noiseBurst({ peak: 0.5, decay: 0.4, freq: 350, q: 0.6 });
+    this._tone({ type: 'sawtooth', from: 100, to: 45, dur: 0.4, peak: 0.25 });
+  }
+
+  cowMoo(hurt = false) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    const base = hurt ? 180 : 130;
+    osc.frequency.setValueAtTime(base, t);
+    osc.frequency.linearRampToValueAtTime(base * 0.72, t + 0.55);
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'lowpass'; filt.frequency.value = 500; filt.Q.value = 3;
+    const g = this.ctx.createGain();
+    this._env(g, t, 0.08, hurt ? 0.22 : 0.12, 0.55);
+    osc.connect(filt).connect(g).connect(this.master);
+    osc.start(t); osc.stop(t + 0.7);
+  }
+
+  spiderHiss() {
+    this._noiseBurst({ peak: 0.4, decay: 0.5, freq: 3400, filterType: 'highpass', q: 0.6 });
+    this._tone({ type: 'sawtooth', from: 220, to: 90, dur: 0.4, peak: 0.2 });
+  }
+
+  spiderLand() { this._noiseBurst({ peak: 0.5, decay: 0.25, freq: 220, q: 0.7 }); }
+
+  spit() { this._tone({ type: 'sine', from: 500, to: 180, dur: 0.14, peak: 0.16 }); }
+
+  enchant() {
+    const notes = [740, 932, 1244, 1480];
+    notes.forEach((f, i) => this._tone({ type: 'triangle', from: f, to: f * 1.01, dur: 0.2, peak: 0.13, delay: i * 0.09 }));
+  }
+
+  chestOpen() {
+    this._noiseBurst({ peak: 0.3, decay: 0.25, freq: 500, q: 0.8 });
+    const notes = [523, 784, 1046];
+    notes.forEach((f, i) => this._tone({ type: 'sine', from: f, to: f, dur: 0.18, peak: 0.14, delay: 0.12 + i * 0.1 }));
+  }
+
+  powerOn() {
+    this._tone({ type: 'sawtooth', from: 40, to: 65, dur: 1.4, peak: 0.4 });
+    this._noiseBurst({ peak: 0.3, decay: 0.9, freq: 2400, filterType: 'highpass' });
+    this._tone({ type: 'sine', from: 220, to: 440, dur: 0.9, peak: 0.15, delay: 0.4 });
+  }
+
+  heliStart() {
+    if (!this.ctx) return;
+    for (let i = 0; i < 14; i++) {
+      this._noiseBurst({ peak: 0.12 + i * 0.02, decay: 0.1, freq: 300 + i * 40, filterType: 'bandpass', q: 1.2 });
+      this._tone({ type: 'sine', from: 60 + i * 10, to: 60 + i * 10, dur: 0.12, peak: 0.08, delay: i * 0.16 });
+    }
+  }
 
   // ---- ambient bed: wind + low drone, loops forever ----
   _ambient() {

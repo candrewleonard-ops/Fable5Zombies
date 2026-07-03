@@ -143,6 +143,12 @@ export class Zombie {
     this.radius = this.boss ? 0.5 : 0.32;
     this.kb = new THREE.Vector3(); // melee knockback, decays
     this.slamCd = 5;
+    this.stuckT = 0;
+    this.detour = null;
+    this.detourT = 0;
+    this.burnT = 0;   // hellfire ignite
+    this.burnDps = 0;
+    this.slowT = 0;   // nuclear goop slow
     this.alive = true;
     this.dead = false;
 
@@ -177,6 +183,11 @@ export class Zombie {
     let dx = tx - this.pos.x, dz = tz - this.pos.z;
     const dist = Math.hypot(dx, dz);
     if (dist > 0.0001) { dx /= dist; dz /= dist; }
+    // an active detour overrides steering (unstick from props/doors/builds)
+    if (this.detourT > 0) {
+      this.detourT -= dt;
+      dx = this.detour.x; dz = this.detour.z;
+    }
     // separation
     for (const o of this.mgr.zombies) {
       if (o === this || o.dead || !o.alive) continue;
@@ -191,7 +202,22 @@ export class Zombie {
     }
     const n = Math.hypot(dx, dz);
     if (n > 0.0001) { dx /= n; dz /= n; }
+    const px = this.pos.x, pz = this.pos.z;
     this._move(dx * spd * dt, dz * spd * dt);
+    // stuck detection: wanted to move but geometry pinned us (PaP corner,
+    // door frames, player builds) → sidestep roughly perpendicular for a beat
+    const moved = Math.hypot(this.pos.x - px, this.pos.z - pz);
+    if (spd > 0.3 && dist > 1.2 && moved < spd * dt * 0.3) {
+      this.stuckT = (this.stuckT || 0) + dt;
+      if (this.stuckT > 0.7) {
+        this.stuckT = 0;
+        const side = Math.random() < 0.5 ? 1 : -1;
+        let ex = -dz * side + dx * 0.25, ez = dx * side + dz * 0.25;
+        const en = Math.hypot(ex, ez) || 1;
+        this.detour = { x: ex / en, z: ez / en };
+        this.detourT = 0.5 + Math.random() * 0.45;
+      }
+    } else this.stuckT = Math.max(0, (this.stuckT || 0) - dt * 2);
     this.face(this.pos.x + dx, this.pos.z + dz, dt);
     return dist;
   }
@@ -259,6 +285,18 @@ export class Zombie {
         this.groanT = 3 + Math.random() * 6;
         audio.zombieGroan(this.pos.distanceTo(P.pos));
       }
+      // status effects: burning (hellfire) + slow decay (nuclear goop)
+      if (this.burnT > 0 && !this.dead) {
+        this.burnT -= dt;
+        this._burnTick = (this._burnTick || 0) - dt;
+        if (this._burnTick <= 0) {
+          this._burnTick = 0.25;
+          this.mgr.effects.sparksColored(this.pos.clone().setY(this.pos.y + 1.0 + Math.random()), 0xff7a1a);
+          this.takeDamage(this.burnDps * 0.25, 'body', this.pos.clone().setY(this.pos.y + 1.1), null);
+          if (this.dead) return;
+        }
+      }
+      this.slowT = Math.max(0, this.slowT - dt);
     }
 
     switch (this.state) {
@@ -336,7 +374,7 @@ export class Zombie {
           if (this.chain.length) { tx = this.chain[0].x; tz = this.chain[0].z; }
         }
         const distP = Math.hypot(P.pos.x - this.pos.x, P.pos.z - this.pos.z);
-        const spd = this.speed * (distP < 3 ? 1.12 : 1);
+        const spd = this.speed * (distP < 3 ? 1.12 : 1) * (this.slowT > 0 ? 0.8 : 1);
         this.stepToward(tx, tz, dt, spd);
         this.walkAnim(dt, spd);
         this.armsReach(distP < 4 ? 1 : (this.speed > 2.4 ? 0.8 : 0.15), dt);
@@ -431,6 +469,7 @@ export class Zombie {
 
   takeDamage(dmg, part, hitPoint, dir) {
     if (this.dead) return null;
+    if (this.mgr.instaKill && !this.boss) dmg = Math.max(dmg, this.hp); // 💀 Insta-Kill
     this.hp -= dmg;
     this.mgr.effects.blood(hitPoint, dir || new THREE.Vector3(0, 0.4, 0), part === 'head' ? 14 : 7, 5, this.pos.y);
     this.mgr.effects.damageNumber(hitPoint, dmg, part === 'head');
@@ -476,6 +515,7 @@ export class ZombieManager {
     this.zombies = [];
     this.raycaster = new THREE.Raycaster();
     this.hitDamage = 22;
+    this.instaKill = false; // powerup flag (main toggles)
     this.onKill = null;        // (zombie, headshot)
     this.onHurtPlayer = null;
     this.onBoards = null;

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { groundHeightAt } from './physics.js';
 import { audio } from './audio.js';
+import { buildLamboModel } from './village.js';
 
 // The "Riptide Coupe" (digests/car.md): deploy with Car Keys, F to drive.
 // Arcade physics, third-person chase cam with speed-widened FOV, body roll,
@@ -76,13 +77,24 @@ export class CarSys {
 
     this.onRunOverHit = null;   // (zombie, killed)
     this.onMessage = null;
+    this.kind = 'coupe';
+    this.stats = { acc: 13, top: 15, rev: -5.5 };
   }
 
   _fwd() { return new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)); }
 
-  deploy(pos, yaw) {
+  deploy(pos, yaw, kind = 'coupe') {
+    if (this.mesh && this.kind !== kind) {
+      this.scene.remove(this.mesh);
+      this.mesh = null;
+    }
+    this.kind = kind;
+    this.stats = kind === 'lambo'
+      ? { acc: 24, top: 27, rev: -8 }   // the Ravager LX flies
+      : { acc: 13, top: 15, rev: -5.5 };
     if (!this.mesh) {
-      this.mesh = buildCarModel();
+      this.mesh = kind === 'lambo' ? buildLamboModel() : buildCarModel();
+      if (!this.mesh.userData.wheels) this.mesh.userData.wheels = [];
       this.scene.add(this.mesh);
       this.headLight = new THREE.SpotLight(0xcfe8ff, 0, 22, 0.5, 0.4, 1.2);
       this.headLight.position.set(0, 0.7, -1.8);
@@ -150,11 +162,11 @@ export class CarSys {
     let steer = 0;
     if (this.driving) {
       let acc = 0;
-      if (keys.has('KeyW')) acc += 13;
+      if (keys.has('KeyW')) acc += this.stats.acc;
       if (keys.has('KeyS')) acc += this.speed > 0.5 ? -18 : -7;
       if (acc !== 0) this.speed += acc * dt;
       else this.speed *= Math.pow(0.35, dt);
-      this.speed = Math.max(-5.5, Math.min(15, this.speed));
+      this.speed = Math.max(this.stats.rev, Math.min(this.stats.top, this.speed));
       if (Math.abs(this.speed) < 0.04) this.speed = 0;
 
       steer = (keys.has('KeyA') ? 1 : 0) - (keys.has('KeyD') ? 1 : 0);

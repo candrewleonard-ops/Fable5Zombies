@@ -17,6 +17,9 @@ export class HUD {
       bloodOverlay: $('bloodOverlay'), hitmarker: $('hitmarker'),
       healthFill: $('healthFill'), healthNum: $('healthNum'),
       bossBar: $('bossBar'), bossFill: $('bossFill'), bossName: $('bossName'),
+      powerupRow: $('powerupRow'), heatWrap: $('heatWrap'), heatFill: $('heatFill'),
+      gasOverlay: $('gasOverlay'), berserkOverlay: $('berserkOverlay'),
+      noteModal: $('noteModal'), noteTitle: $('noteTitle'), noteText: $('noteText'),
     };
     this._msgTimer = null;
     this._hitTimer = null;
@@ -36,11 +39,46 @@ export class HUD {
     this.el.healthNum.textContent = Math.ceil(hp);
   }
 
-  bossHUD(boss) {
+  bossHUD(boss, name) {
     if (!boss || boss.dead) { this.el.bossBar.style.display = 'none'; return; }
     this.el.bossBar.style.display = 'block';
+    if (name) this.el.bossName.textContent = name;
     this.el.bossFill.style.width = Math.max(0, boss.hp / boss.maxHp * 100) + '%';
   }
+
+  // active powerup chips with countdowns
+  powerupHUD(active) {
+    const html = active.map((p) =>
+      `<div class="puChip" style="border-color:${p.css};color:${p.css}">${p.icon} ${p.name}${p.t > 0 ? ' ' + Math.ceil(p.t) : ''}</div>`
+    ).join('');
+    if (html !== this._puHtml) { this._puHtml = html; this.el.powerupRow.innerHTML = html; }
+  }
+
+  setHeat(show, heat, max) {
+    this.el.heatWrap.style.display = show ? 'flex' : 'none';
+    if (show) {
+      const pct = Math.min(100, heat / max * 100);
+      this.el.heatFill.style.width = pct + '%';
+      this.el.heatFill.style.background = pct > 85 ? '#e04a2a' : '#e0a02a';
+    }
+  }
+
+  gasFx(count) {
+    this.el.gasOverlay.style.opacity = Math.min(0.85, count * 0.45);
+  }
+
+  berserkFx(on) {
+    this.el.berserkOverlay.style.opacity = on ? 0.45 : 0;
+  }
+
+  showNote(title, text) {
+    this.el.noteTitle.textContent = title;
+    this.el.noteText.textContent = text;
+    this.el.noteModal.style.display = 'flex';
+  }
+
+  hideNote() { this.el.noteModal.style.display = 'none'; }
+  get noteOpen() { return this.el.noteModal.style.display === 'flex'; }
 
   banner(text) {
     const el = this.el.waveBanner;
@@ -73,6 +111,12 @@ export class HUD {
     }
     this.el.weaponName.textContent = def.name;
     this.el.weaponName.classList.toggle('pap', !!item.pap);
+    if (def.flame) {
+      this.el.ammo.innerHTML = `∞ <span class="res">fuel</span>`;
+      this.el.ammo.classList.remove('low');
+      this.el.reloadHint.classList.remove('show');
+      return;
+    }
     this.el.ammo.innerHTML = `${reloading ? '••' : item.mag} <span class="res">/ ${item.reserve}</span>`;
     this.el.ammo.classList.toggle('low', item.mag <= Math.max(2, def.mag * 0.25) && !reloading);
     this.el.reloadHint.classList.toggle('show', item.mag === 0 && item.reserve > 0 && !reloading);

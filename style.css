@@ -314,3 +314,189 @@ html, body {
 #libLink:hover { opacity: 1; }
 #survStats { font-size: 22px; letter-spacing: 2px; color: #9a917f; margin: 14px 0 30px; }
 #deadOverlay h1 { color: #b81414; }
+
+/* ================= EXPANSION UI ================= */
+
+/* --- Borderlands-style gun card --- */
+#gunCard {
+  display: none;
+  position: fixed; left: 50%; top: 40px;
+  transform: translateX(-50%);
+  width: 340px; z-index: 40;
+  font-family: 'Barlow Condensed', sans-serif;
+  filter: drop-shadow(0 10px 24px rgba(0,0,0,0.7));
+  pointer-events: none;
+}
+.gc-head {
+  border: 2px solid; border-bottom: none;
+  background: rgba(10, 16, 30, 0.94);
+  padding: 8px 12px 6px;
+}
+.gc-name { font-size: 26px; font-weight: 700; letter-spacing: 0.5px; line-height: 1; }
+.gc-type { font-size: 13px; color: #8aa0c0; letter-spacing: 1px; margin-top: 3px; }
+.gc-body {
+  background: rgba(12, 18, 34, 0.94);
+  border: 2px solid #2c3a54; border-top: none;
+  padding: 8px 12px 10px;
+}
+.gc-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 16px; color: #cfd8e8; padding: 2.5px 0;
+}
+.gc-row b { color: #fff; min-width: 52px; text-align: right; font-size: 18px; }
+.gc-ico { color: #7a90b8; width: 16px; text-align: center; }
+.gc-label { flex: 0 0 108px; letter-spacing: 0.5px; }
+.gc-bar { flex: 1; height: 7px; background: #1a2438; border: 1px solid #32405c; }
+.gc-bar span { display: block; height: 100%; background: linear-gradient(90deg, #c8d8f0, #8fb0e0); }
+.gc-red { color: #e05a4a; font-size: 14.5px; padding-top: 4px; line-height: 1.25; }
+.gc-maker { margin-top: 8px; font-size: 12px; letter-spacing: 3px; color: #5a6a88; text-align: right; }
+.tt-card .gc-head, .tt-card .gc-body { border-width: 1px; }
+.tt-ench { color: #b48cff; font-size: 14px; margin-top: 4px; letter-spacing: 0.5px; }
+
+/* --- rarity slot outlines --- */
+.slot.grade-uncommon { box-shadow: inset 0 0 0 2px rgba(79, 224, 79, 0.55); }
+.slot.grade-rare { box-shadow: inset 0 0 0 2px rgba(79, 143, 255, 0.6); }
+.slot.grade-epic { box-shadow: inset 0 0 0 2px rgba(196, 90, 255, 0.6); }
+.slot.grade-legendary { box-shadow: inset 0 0 0 2px rgba(255, 162, 43, 0.7); }
+
+/* --- powerups / heat / overlays --- */
+#powerupRow {
+  position: absolute; top: 108px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 10px; z-index: 12;
+}
+.puChip {
+  font-family: 'Pirata One', serif; font-size: 22px; letter-spacing: 2px;
+  border: 2px solid; padding: 3px 14px;
+  background: rgba(8, 8, 12, 0.65);
+  text-shadow: 0 0 12px currentColor;
+  animation: puPulse 0.9s ease-in-out infinite alternate;
+}
+@keyframes puPulse { from { opacity: 0.85; } to { opacity: 1; transform: scale(1.03); } }
+#heatWrap {
+  position: absolute; right: 36px; bottom: 118px;
+  display: none; align-items: center; gap: 8px;
+  font-size: 13px; letter-spacing: 2px; color: #c8a06a;
+}
+#heatTrack { width: 150px; height: 10px; background: rgba(20,16,12,0.8); border: 1px solid #5a4632; }
+#heatFill { height: 100%; width: 0%; background: #e0a02a; }
+#gasOverlay {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 11;
+  background: radial-gradient(ellipse at 50% 45%, rgba(90, 200, 60, 0.12) 30%, rgba(70, 180, 40, 0.55) 78%, rgba(40, 120, 20, 0.8) 100%);
+  backdrop-filter: blur(2px);
+  transition: opacity 0.4s;
+}
+#berserkOverlay {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 10;
+  background: radial-gradient(ellipse at center, transparent 42%, rgba(255, 42, 144, 0.28) 100%);
+  transition: opacity 0.5s;
+}
+
+/* --- readable notes --- */
+#noteModal {
+  position: fixed; inset: 0; z-index: 60;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(4, 4, 8, 0.6);
+}
+#noteInner {
+  width: 460px; padding: 26px 30px;
+  background: linear-gradient(160deg, #d8ccae, #c4b694);
+  color: #2c2418; border: 1px solid #8a7a58;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+  transform: rotate(-0.7deg);
+  font-family: Georgia, serif;
+}
+#noteInner h3 { font-size: 22px; margin-bottom: 10px; border-bottom: 1px solid #8a7a58; padding-bottom: 8px; }
+#noteInner p { font-size: 16.5px; line-height: 1.5; font-style: italic; }
+.noteHint { margin-top: 14px; font-size: 12px; letter-spacing: 2px; color: #6a5c40; text-transform: uppercase; }
+
+/* --- big DOM panels (bank / store / combiner / quests) --- */
+.bigPanel {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 560px; max-height: 82vh; overflow-y: auto; z-index: 55;
+  background: rgba(12, 14, 22, 0.97);
+  border: 1px solid #3a4258;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.85);
+  font-family: 'Barlow Condensed', sans-serif; color: #cfd8e8;
+}
+.bp-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 20px; border-bottom: 1px solid #2a3248;
+  background: rgba(20, 26, 42, 0.9);
+}
+.bp-head h2 { font-family: 'Pirata One', serif; font-weight: 400; font-size: 28px; letter-spacing: 2px; color: #e8dfcf; }
+.bp-close { cursor: pointer; font-size: 20px; color: #8a94ac; padding: 4px 8px; }
+.bp-close:hover { color: #fff; }
+.bp-body { padding: 16px 20px; }
+.bp-hint { padding: 8px 20px 14px; font-size: 12px; letter-spacing: 2px; color: #5a6480; }
+.bp-points { font-size: 20px; color: #f7d774; margin-bottom: 12px; }
+.bigPanel button {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 15px; letter-spacing: 1px;
+  color: #e8dfcf; background: #223050; border: 1px solid #3c507c;
+  padding: 5px 14px; cursor: pointer;
+}
+.bigPanel button:hover:not(:disabled) { background: #2c4068; }
+.bigPanel button:disabled { opacity: 0.35; cursor: default; }
+.fund { border: 1px solid #26304a; padding: 12px 14px; margin-bottom: 12px; background: rgba(16, 20, 34, 0.8); }
+.fund-top { display: flex; justify-content: space-between; font-size: 20px; }
+.fund-price em { font-style: normal; font-size: 15px; margin-left: 6px; }
+.fund-price .up { color: #54d86a; } .fund-price .down { color: #e05a4a; }
+.fund-desc { font-size: 14px; color: #8a94ac; margin: 4px 0 8px; }
+.fund-own { font-size: 15px; margin-bottom: 8px; }
+.fund-btns { display: flex; gap: 8px; }
+.storeSell { margin-bottom: 12px; font-size: 16px; }
+.storeRow {
+  display: grid; grid-template-columns: 1fr auto auto auto; gap: 12px; align-items: center;
+  padding: 6px 8px; border-bottom: 1px solid #1c2438; font-size: 16px;
+}
+.sr-stats { color: #8a94ac; font-size: 14px; }
+.sr-price { color: #f7d774; }
+.cbSockets { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.cbSocket { border: 1px dashed #3a4a70; padding: 10px 12px; font-size: 17px; display: flex; justify-content: space-between; align-items: center; }
+.cbBtns { display: flex; gap: 10px; margin-bottom: 12px; }
+#cbCombine { background: #4a2470; border-color: #7a44b0; font-size: 17px; }
+.cbUps { font-size: 15px; color: #8a94ac; display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+.questBox { border: 1px solid #26304a; padding: 14px; margin-bottom: 14px; background: rgba(16,20,34,0.8); }
+.q-desc { font-size: 19px; margin-bottom: 6px; }
+.q-reward { font-size: 15px; color: #f7d774; margin-bottom: 10px; }
+.mileHead { font-size: 16px; letter-spacing: 2px; color: #8a94ac; margin: 10px 0 6px; }
+.mileRow { display: flex; justify-content: space-between; padding: 6px 4px; border-bottom: 1px solid #1c2438; font-size: 15.5px; }
+
+/* --- enchant bar (anvil) --- */
+#enchantBar { display: none; margin: 12px 0; padding: 10px 12px; border: 1px solid #4a3a66; background: rgba(26, 18, 40, 0.6); }
+.enchTitle { font-size: 15px; letter-spacing: 1px; color: #c8b0f0; margin-bottom: 8px; }
+.enchList { font-size: 14px; color: #b48cff; margin-bottom: 8px; }
+.enchBtns { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.enchBtns button {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 14px;
+  color: #e0d0ff; background: #2c1c48; border: 1px solid #5a3a90;
+  padding: 4px 12px; cursor: pointer;
+}
+.enchBtns button:hover:not(:disabled) { background: #3c2a5c; }
+.enchBtns button:disabled { opacity: 0.35; cursor: default; }
+.enchDesc { font-size: 12.5px; color: #7a6a9a; line-height: 1.35; }
+
+/* --- in-game browser (wifi radio laptop) --- */
+#browserBox { position: fixed; z-index: 58; background: #0c0e16; border: 1px solid #3a4258; box-shadow: 0 20px 70px rgba(0,0,0,0.8); display: flex; flex-direction: column; }
+#browserBox.hiddenBrowser { display: none; }
+#browserBox.fullBrowser { left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(72vw, 1100px); height: min(74vh, 700px); }
+#browserBox.pipBrowser {
+  left: auto; right: 14px; top: 64px; transform: none;
+  width: 320px; height: 216px;
+}
+#browserBox.pipBrowser .bb-bar input, #browserBox.pipBrowser .bb-quick, #browserBox.pipBrowser .bb-title { display: none; }
+.bb-bar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #141a2a; }
+.bb-title { font-family: 'Pirata One', serif; color: #e8dfcf; letter-spacing: 2px; font-size: 18px; }
+.bb-bar input {
+  flex: 1; background: #0a0e18; color: #cfd8e8; border: 1px solid #2c3a54;
+  padding: 6px 10px; font-family: 'Barlow Condensed', sans-serif; font-size: 15px; outline: none;
+}
+.bb-quick { display: flex; gap: 6px; }
+.bb-quick button, #bb-close {
+  background: #223050; color: #cfd8e8; border: 1px solid #3c507c;
+  font-size: 13px; padding: 4px 10px; cursor: pointer; font-family: 'Barlow Condensed', sans-serif;
+}
+.bb-frame { flex: 1; }
+.bb-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+#winOverlay h1 { color: #54d86a; text-shadow: 0 0 44px rgba(60, 220, 110, 0.5), 0 4px 10px #000; }
+#winStats { font-size: 20px; letter-spacing: 1px; color: #9a917f; margin: 14px 0 30px; }

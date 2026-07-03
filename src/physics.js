@@ -8,6 +8,16 @@ export const STEP_HEIGHT = 0.55;
 export const GRAVITY = 22;
 const EPS = 0.001;
 
+// Regions where the implicit y=0 ground plane is absent (mine shafts and
+// tunnels dig below it). Real floor colliders take over inside a hole.
+export const groundHoles = [];
+export function baseGroundAt(x, z) {
+  for (const h of groundHoles) {
+    if (x > h.x0 && x < h.x1 && z > h.z0 && z < h.z1) return -1000;
+  }
+  return 0;
+}
+
 export function aabb(minX, minY, minZ, maxX, maxY, maxZ) {
   return { minX, minY, minZ, maxX, maxY, maxZ };
 }
@@ -38,7 +48,7 @@ function fitsAt(colliders, x, z, radius, top, height, self) {
 // When `height` is given, tops without headroom for the entity are rejected so
 // we never snap someone up into overhead geometry.
 export function groundHeightAt(colliders, x, z, feetY, radius, height = 0) {
-  let ground = 0;
+  let ground = baseGroundAt(x, z);
   for (const c of colliders) {
     if (!overlapsXZ(c, x, z, radius)) continue;
     if (c.maxY > feetY + STEP_HEIGHT + EPS || c.maxY <= ground) continue;

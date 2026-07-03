@@ -30,7 +30,9 @@ function noiseOn(g, w, h, n, alpha, dark) {
 export function createWorld(scene) {
   const colliders = [];   // movement + jetpack ceilings
   const shotSolids = [];  // bullet + LOS occlusion (no window blockers)
-  const bounds = { minX: -60, maxX: 60, minZ: -60, maxZ: 60 };
+  // the world now stretches far past the bunker: road east to the village,
+  // nuclear facility to the north-east, mines under the north forest
+  const bounds = { minX: -140, maxX: 620, minZ: -260, maxZ: 260 };
   const bulbs = [];
   const windows = [];
   const doors = [];
@@ -180,9 +182,9 @@ export function createWorld(scene) {
   scene.add(moonLight);
 
   // ---------- ground / floors / ceilings ----------
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(280, 280), MAT.dirt);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(1600, 900), MAT.dirt);
   ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -0.02;
+  ground.position.set(240, -0.02, 0);
   ground.receiveShadow = true;
   scene.add(ground);
 
@@ -199,6 +201,7 @@ export function createWorld(scene) {
   floorSlab(5.2, 14, 10, 18, 0.02);
   floorSlab(-14, 6.8, 0, 8.2, 3.2);        // mezzanine
   floorSlab(-9.7, 6.8, 8.2, 10, 3.2);      // mezz beside stair opening
+  floorSlab(-14, -6, -10, 0, 3.2);         // upstairs west wing (expansion)
 
   const ceil = (x0, x1, z0, z1, y) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, 0.25, z1 - z0), MAT.ceil);
@@ -208,7 +211,10 @@ export function createWorld(scene) {
     scene.add(m);
     solid(x0, x1, y, y + 0.25, z0, z1); // jetpack head-bump
   };
-  ceil(-14, 14, -10, 10, 6.4);
+  // MAIN ceiling doubles as the ROOF floor — hole at the roof stairwell
+  ceil(-10.6, 14, -10, 10, 6.4);
+  ceil(-14, -10.6, -10, 1.4, 6.4);
+  ceil(-14, -10.6, 5.4, 10, 6.4);
   ceil(-26, -14, -2, 10, 3.2);
   ceil(5.2, 14, 10, 18, 3.2);
 
@@ -307,7 +313,8 @@ export function createWorld(scene) {
     bulbs.push({ light, mesh: b, base: 26, seed: Math.random() * 10 });
   }
   bulb(0, 4.6, -5, true, 1.75);
-  bulb(-8, 4.6, -3, false, 1.75);
+  bulb(-8, 2.72, -3, false, 0.5);   // under the west-wing mezzanine
+  bulb(-10, 5.7, -5, false, 0.7);   // west wing (upstairs expansion)
   bulb(9.5, 4.4, 4.5, false, 1.95);
   bulb(-5, 2.72, 5.5);
   bulb(2, 2.72, 2.5);
@@ -491,22 +498,30 @@ export function createWorld(scene) {
     ARMORY:  { rects: [{ x0: -26, x1: -14, z0: -2, z1: 10 }], lo: true, unlocked: false },
     STORAGE: { rects: [{ x0: 5.2, x1: 14, z0: 10, z1: 18 }], lo: true, unlocked: false },
     CAMP:    { rects: [{ x0: -34, x1: 0, z0: 10, z1: 34 }], lo: true, unlocked: false },
-    UPPER:   { rects: [{ x0: -14, x1: 6.8, z0: 0, z1: 10 }], hi: true, unlocked: false },
+    UPPER:   { rects: [{ x0: -14, x1: 6.8, z0: 0, z1: 10 }, { x0: -14, x1: -6, z0: -10, z1: 0 }], hi: true, unlocked: false },
+    ROOF:    { rects: [{ x0: -14, x1: 14, z0: -10, z1: 10 }], roof: true, unlocked: false },
   };
   const PORTALS = [
     { a: 'MAIN', b: 'ARMORY', pts: [new THREE.Vector3(-14, 0, 4)] },
     { a: 'MAIN', b: 'STORAGE', pts: [new THREE.Vector3(9.5, 0, 10)] },
     { a: 'MAIN', b: 'UPPER', pts: [new THREE.Vector3(-9.5, 0, 9.05), new THREE.Vector3(-12.9, 3.2, 9.05), new THREE.Vector3(-12.3, 3.2, 7.3)] },
     { a: 'ARMORY', b: 'CAMP', pts: [new THREE.Vector3(-20, 0, 10)] },
+    { a: 'UPPER', b: 'ROOF', pts: [new THREE.Vector3(-12.3, 3.2, 1.7), new THREE.Vector3(-12.3, 6.65, 5.3), new THREE.Vector3(-10, 6.65, 6)] },
   ];
   const STAIR_ZONE = { x0: -13.6, x1: -9.3, z0: 8.2, z1: 10 };
 
   function roomAt(pos) {
+    if (pos.y > 5.6) {
+      for (const rect of rooms.ROOF.rects) {
+        if (pos.x >= rect.x0 && pos.x <= rect.x1 && pos.z >= rect.z0 && pos.z <= rect.z1) return 'ROOF';
+      }
+    }
     if (pos.x > STAIR_ZONE.x0 && pos.x < STAIR_ZONE.x1 && pos.z > STAIR_ZONE.z0 && pos.z < STAIR_ZONE.z1) {
       return pos.y > 1.6 ? 'UPPER' : 'MAIN';
     }
     const hi = pos.y > 1.8;
     for (const [key, r] of Object.entries(rooms)) {
+      if (r.roof) continue;
       if (r.hi && !hi) continue;
       if (r.lo && hi) continue;
       for (const rect of r.rects) {
@@ -567,8 +582,12 @@ export function createWorld(scene) {
   }
   mkPerk(13.45, -9.2, -Math.PI / 2, 'tonic', 'TOUGH TONIC', '#9e1b1b', ECON.perks.tonic.cost);
   mkPerk(-25.35, 9.2, Math.PI / 2, 'rapid', 'RAPID ROUNDS', '#b08414', ECON.perks.rapid.cost);
-  mkPerk(-13.35, 2, Math.PI / 2, 'fleet', 'FLEET FOOT', '#1c5d8a', ECON.perks.fleet.cost, 3.2);
+  mkPerk(-13.35, 0.5, Math.PI / 2, 'fleet', 'FLEET FOOT', '#1c5d8a', ECON.perks.fleet.cost, 3.2);
   mkPerk(13.45, 17.2, -Math.PI / 2, 'deadeye', 'DEADEYE', '#5b2a7a', ECON.perks.deadeye.cost);
+  // expansion perks: Quick Revive works without power, in the first room
+  mkPerk(2, 9.3, Math.PI, 'revive', 'QUICK REVIVE', '#3a7cc8', ECON.perks.revive.cost);
+  mkPerk(-33.35, 25, Math.PI / 2, 'vulture', 'VULTURE AID', '#4a7a2a', ECON.perks.vulture.cost);
+  mkPerk(12, -8.5, -Math.PI, 'ironhide', 'IRON HIDE', '#5a5f66', ECON.perks.ironhide.cost, 6.79);
 
   // ---------- wall-buys ----------
   function mkWallbuy(x, y, z, ry, key) {
@@ -582,6 +601,141 @@ export function createWorld(scene) {
   mkWallbuy(4, 1.7, -9.79, 0, 'kar98');
   mkWallbuy(10.5, 1.7, 17.79, Math.PI, 'trench');
   mkWallbuy(6.61, 4.9, 5, -Math.PI / 2, 'smg');
+
+  // ---------- ROOF (expansion): stairs, parapet, helipad, power ----------
+  // stairs UPPER mezz (3.2) → roof (6.65) through the ceiling hole
+  for (let i = 0; i < 10; i++) {
+    const h = 0.345 * (i + 1);
+    boxMesh(1.3, h, 0.36, MAT.wall, -12.3, 3.2 + h / 2, 1.98 + i * 0.345);
+  }
+  boxMesh(0.14, 3.45, 3.6, MAT.wood, -11.58, 4.92, 3.5); // stair stringer wall
+  // west-wing railing (decorative)
+  boxMesh(0.09, 0.09, 9.9, MAT.woodDark, -6.05, 4.18, -5, { solid: false, cast: false });
+  for (let z = -9.5; z <= -0.5; z += 2.25) boxMesh(0.07, 0.9, 0.07, MAT.woodDark, -6.05, 3.65, z, { solid: false, cast: false });
+
+  // parapet
+  boxMesh(28.6, 0.95, 0.3, MAT.wall, 0, 7.12, -10.15);
+  boxMesh(28.6, 0.95, 0.3, MAT.wall, 0, 7.12, 10.15);
+  boxMesh(0.3, 0.95, 20.6, MAT.wall, -14.15, 7.12, 0);
+  boxMesh(0.3, 0.95, 20.6, MAT.wall, 14.15, 7.12, 0);
+
+  // helipad
+  const padTex = makeTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#3c4046'; g.beginPath(); g.arc(128, 128, 126, 0, 7); g.fill();
+    g.strokeStyle = '#d8c245'; g.lineWidth = 10;
+    g.beginPath(); g.arc(128, 128, 104, 0, 7); g.stroke();
+    g.fillStyle = '#d8c245'; g.font = 'bold 120px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('H', 128, 134);
+    noiseOn(g, w, h, 300, 0.1, true);
+  });
+  const pad = new THREE.Mesh(new THREE.CylinderGeometry(4.4, 4.4, 0.14, 28),
+    new THREE.MeshStandardMaterial({ map: padTex, roughness: 0.85 }));
+  pad.position.set(6, 6.72, 0);
+  pad.receiveShadow = true;
+  scene.add(pad);
+  solid(6 - 4.2, 6 + 4.2, 6.65, 6.79, -4.2, 4.2);
+
+  // helicopter frame — the win condition. Rotor/engine/fuel/avionics attach
+  // as the player installs the parts (clue-driven easter egg).
+  const heliGroup = new THREE.Group();
+  heliGroup.position.set(6, 6.79, 0);
+  const heliMat = new THREE.MeshStandardMaterial({ color: 0x3f4b42, metalness: 0.45, roughness: 0.5 });
+  const heliDark = new THREE.MeshStandardMaterial({ color: 0x22262a, metalness: 0.6, roughness: 0.45 });
+  {
+    for (const s of [-1, 1]) { // skids
+      const skid = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 3.4, 8), heliDark);
+      skid.rotation.x = Math.PI / 2; skid.position.set(s * 0.85, 0.12, 0);
+      heliGroup.add(skid);
+      for (const zz of [-1, 1]) {
+        const strut = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.55, 0.07), heliDark);
+        strut.position.set(s * 0.85, 0.42, zz * 0.9);
+        heliGroup.add(strut);
+      }
+    }
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.25, 2.6), heliMat);
+    body.position.set(0, 1.3, 0.2); body.castShadow = true;
+    heliGroup.add(body);
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.95, 0.7), new THREE.MeshStandardMaterial({
+      color: 0x9fc8e8, metalness: 0.2, roughness: 0.15, transparent: true, opacity: 0.55,
+    }));
+    nose.position.set(0, 1.35, -1.35);
+    heliGroup.add(nose);
+    const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.24, 2.8, 10), heliMat);
+    boom.rotation.x = Math.PI / 2; boom.position.set(0, 1.5, 2.8);
+    heliGroup.add(boom);
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.9, 0.6), heliMat);
+    fin.position.set(0, 1.95, 4.1);
+    heliGroup.add(fin);
+  }
+  const heliMeshes = {};
+  { // rotor (hidden until installed)
+    const rotor = new THREE.Group();
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.5, 8), heliDark);
+    rotor.add(mast);
+    for (const ry of [0, Math.PI / 2]) {
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.05, 0.32), heliDark);
+      blade.rotation.y = ry; blade.position.y = 0.22;
+      rotor.add(blade);
+    }
+    rotor.position.set(0, 2.1, 0.2);
+    rotor.visible = false;
+    heliGroup.add(rotor);
+    heliMeshes.rotor = rotor;
+    const engine = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.4, 1.1), heliDark);
+    engine.position.set(0, 2.0, 0.3); engine.visible = false;
+    heliGroup.add(engine);
+    heliMeshes.engine = engine;
+    const fuel = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 1.1, 10),
+      new THREE.MeshStandardMaterial({ color: 0x8a2c1c, metalness: 0.5, roughness: 0.4 }));
+    fuel.rotation.x = Math.PI / 2; fuel.position.set(0, 0.65, 1.1); fuel.visible = false;
+    heliGroup.add(fuel);
+    heliMeshes.fuel = fuel;
+    const avionics = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.4),
+      new THREE.MeshStandardMaterial({ color: 0x14304a, emissive: 0x35e6ff, emissiveIntensity: 0.8 }));
+    avionics.position.set(0, 1.7, -1.0); avionics.visible = false;
+    heliGroup.add(avionics);
+    heliMeshes.avionics = avionics;
+  }
+  scene.add(heliGroup);
+  solid(6 - 1.1, 6 + 1.1, 6.79, 8.4, -1.0, 1.6);
+  const heli = {
+    pos: new THREE.Vector3(6, 6.79, 0),
+    parts: { rotor: false, engine: false, fuel: false, avionics: false },
+    meshes: heliMeshes, group: heliGroup, done: false, spinT: 0,
+  };
+
+  // roof power switch — activates every perk machine + the Reforge (PaP)
+  boxMesh(0.8, 1.0, 0.16, MAT.metal, -6, 7.3, -9.92, { solid: false });
+  const powerLever = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.5, 0.1), MAT.wood);
+  powerLever.position.set(-6, 7.28, -9.8);
+  powerLever.rotation.x = 0.7;
+  scene.add(powerLever);
+  const powerLightMat = new THREE.MeshStandardMaterial({ color: 0x330a0a, emissive: 0xff3020, emissiveIntensity: 1.6 });
+  const powerLight = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 10), powerLightMat);
+  powerLight.position.set(-6, 7.72, -9.82);
+  scene.add(powerLight);
+  const powerSwitch = {
+    pos: new THREE.Vector3(-6, 7.3, -9.85), on: false, cost: ECON.powerCost,
+    lever: powerLever, lightMat: powerLightMat,
+  };
+
+  // ---------- readable clue notes (helicopter easter egg) ----------
+  const notes = [];
+  function mkNote(x, y, z, title, text) {
+    const paper = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.22),
+      new THREE.MeshStandardMaterial({ color: 0xe8e0c8, emissive: 0xe8e0c8, emissiveIntensity: 0.12, side: THREE.DoubleSide }));
+    paper.rotation.x = -Math.PI / 2;
+    paper.rotation.z = Math.random() * Math.PI;
+    paper.position.set(x, y, z);
+    scene.add(paper);
+    notes.push({ pos: new THREE.Vector3(x, y, z), title, text, mesh: paper });
+  }
+  mkNote(6.8, 6.87, -1.8, "Pilot's last entry",
+    "She'll fly again with four gifts: WINGS from the deep dark, a HEART forged twice-hot, a SEALED BREATH, and a MIND that speaks to satellites. Bring power to the roof, then bring her the gifts.");
+  mkNote(-24.5, 1.0, 8.4, 'Miner’s warning',
+    "The miners swore the deepest shaft hid 'wings for the war bird' in a chest. Then the tunnels took them. Shaft mouth is north of the camp.");
+  mkNote(-17.4, 0.45, 24.1, 'Charred journal',
+    "Sealed breath = the flask the forge fills twice. Four bars of steel to hold it. The anvil remembers everything.");
 
   // ---------- mystery box pads (box itself lives in mysterybox.js) ----------
   const boxPads = [
@@ -811,6 +965,7 @@ export function createWorld(scene) {
   function openDoor(door) {
     door.open = true;
     rooms[door.unlockRoom].unlocked = true;
+    if (door.unlockRoom === 'UPPER') rooms.ROOF.unlocked = true; // roof stairs live upstairs
     const idx = colliders.indexOf(door.solid);
     if (idx >= 0) colliders.splice(idx, 1);
     const sIdx = shotSolids.indexOf(door.solid);
@@ -818,7 +973,14 @@ export function createWorld(scene) {
   }
 
   // ---------- per-frame ----------
-  function update(dt, time) {
+  function update(dt, time, playerPos) {
+    if (playerPos) sky.position.set(playerPos.x, 0, playerPos.z); // sky follows across the big map
+    if (heli.done) { // victory spin-up
+      heli.spinT += dt;
+      heli.meshes.rotor.rotation.y += dt * Math.min(30, heli.spinT * 8);
+      if (heli.spinT > 2.2) heliGroup.position.y = 6.79 + (heli.spinT - 2.2) * (heli.spinT - 2.2) * 2.2;
+      heliGroup.rotation.y += dt * Math.min(0.4, Math.max(0, heli.spinT - 2.2) * 0.12);
+    }
     for (const b of bulbs) {
       const n = Math.sin(time * 9 + b.seed) * 0.5 + Math.sin(time * 23 + b.seed * 2.7) * 0.5;
       b.light.intensity = b.base * (0.82 + 0.18 * n) * (Math.random() < 0.004 ? 0.25 : 1);
@@ -857,6 +1019,7 @@ export function createWorld(scene) {
     rooms, roomAt, pathChain,
     windows, doors, openDoor, ripBoard, addBoard,
     perks, wallBuys, boxPads, papPos, scavenge, trap, bulbs,
+    powerSwitch, heli, notes, solid, boxMesh, makeTex, noiseOn, bulb, mkNote,
     spawnPoint: new THREE.Vector3(0, 0.02, 4),
     update, moonLight,
     materials: MAT, textures: { qTex, woodTex },

@@ -10,8 +10,9 @@ const browser = await chromium.launch({
   args: ['--use-gl=angle', '--enable-webgl'],
 });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+await page.route('https://fonts.googleapis.com/**', (r) => r.abort()); // sandbox proxy hangs fonts
 page.on('pageerror', (e) => console.log('[PAGEERROR]', e.message.slice(0, 200)));
-await page.goto((process.env.BASE_URL || 'http://localhost:5173') + '/?test=1&nozombies=1', { waitUntil: 'networkidle' });
+await page.goto((process.env.BASE_URL || 'http://localhost:5173') + '/?test=1&nozombies=1', { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => window.__game?.state.playing, null, { timeout: 15000 });
 await page.waitForTimeout(1200);
 

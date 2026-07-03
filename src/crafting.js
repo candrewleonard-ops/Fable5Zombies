@@ -212,12 +212,17 @@ export class Drops {
     this.drops.push({ group, ammo: true, t: 0, life: 45 });
   }
 
-  spawnItem(pos, item, colorHex = 0x9dff57) {
-    if (this.drops.length >= 26) return;
+  spawnItem(pos, item, colorHex = 0x9dff57, { delay = 0, force = false } = {}) {
+    if (this.drops.length >= 30) {
+      if (!force) return;
+      // important loot (chests, bosses, quest parts) evicts a mundane drop
+      const i = this.drops.findIndex((d) => !d.item);
+      this._remove(i >= 0 ? i : 0);
+    }
     const group = buildLootModel('item', colorHex);
     group.position.copy(pos);
     this.scene.add(group);
-    this.drops.push({ group, item, t: 0, life: 60 });
+    this.drops.push({ group, item, t: 0, life: 90, delay });
   }
 
   update(dt) {
@@ -228,6 +233,7 @@ export class Drops {
       d.group.rotation.y += dt * 2;
       d.group.position.y += Math.sin(d.t * 3) * 0.0015;
 
+      if (d.delay > 0) { d.delay -= dt; continue; } // Q-dropped: brief pickup immunity
       const dx = this.player.pos.x - d.group.position.x;
       const dy = (this.player.pos.y + 0.5) - d.group.position.y;
       const dz = this.player.pos.z - d.group.position.z;
