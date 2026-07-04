@@ -250,7 +250,7 @@ const papRes = await page.evaluate(() => {
   if (idx < 0) return { skip: true };
   if (idx >= 9) { g.inventory.slots[0] = g.inventory.slots[idx]; g.inventory.slots[idx] = null; }
   g.inventory.select(idx < 9 ? idx : 0);
-  g.teleport(8.5, 0.1, 15.5);
+  g.teleport(g.pap.pos.x + 1.5, 0.1, g.pap.pos.z);
   g.simulate(0.1);
   g.pressF(); g.simulate(0.3); g.releaseF();          // insert + pay
   const inserted = g.pap.state !== 'idle';
@@ -642,6 +642,47 @@ const pit = await page.evaluate(() => {
   return { y: g.player.pos.y };
 });
 push(`stairwell pit sealed (stands at y=${pit.y.toFixed(2)})`, pit.y > 3.0);
+
+// ---------- render performance: no shadow-casting point lights ----------
+const perf = await page.evaluate(() => {
+  const g = window.__game;
+  g.teleport(0, 0.1, 4);
+  let shadowPointLights = 0;
+  g.scene.traverse((o) => { if (o.isPointLight && o.castShadow) shadowPointLights++; });
+  const times = [];
+  for (let i = 0; i < 15; i++) {
+    const t0 = performance.now();
+    g.renderer.render(g.scene, g.camera);
+    times.push(performance.now() - t0);
+  }
+  const avg = times.slice(1).reduce((a, b) => a + b, 0) / (times.length - 1);
+  return { shadowPointLights, avg: +avg.toFixed(1), max: Math.max(...times.slice(1)) };
+});
+push(`no shadow-casting point lights (cubemap shadows are the lag source)`, perf.shadowPointLights === 0);
+push(`render stays fast under repeated frames (avg ${perf.avg}ms, max ${perf.max.toFixed(1)}ms)`, perf.avg < 100 && perf.max < 500);
+
+// ---------- MAIN→UPPER staircase isn't pinched by the decorative stringer ----------
+const stairWidth = await page.evaluate(() => {
+  const g = window.__game;
+  // the stringer used to sit solid from z=8.15 to 8.29, flush against the
+  // stair's z=8.3 edge — a zombie centered there should now walk freely
+  const probe = { minX: -11.65, maxX: -11.55, minY: 1.4, maxY: 1.7, minZ: 8.15, maxZ: 8.29 };
+  const blocked = g.world.colliders.some((c) =>
+    c.minX < probe.maxX && c.maxX > probe.minX &&
+    c.minY < probe.maxY && c.maxY > probe.minY &&
+    c.minZ < probe.maxZ && c.maxZ > probe.minZ);
+  return { blocked };
+});
+push('stair stringer no longer blocks the climb', !stairWidth.blocked);
+
+// ---------- Pack-a-Punch relocated clear of the STORAGE vault landing ----------
+const papSpot = await page.evaluate(() => {
+  const g = window.__game;
+  const vaultLanding = new g.THREE.Vector3(9, 0, 16.8); // STORAGE window inner vault point
+  const d = g.pap.pos.distanceTo(vaultLanding);
+  return { pos: [g.pap.pos.x, g.pap.pos.z], d: +d.toFixed(2) };
+});
+push(`Pack-a-Punch moved off the vault landing (now ${JSON.stringify(papSpot.pos)}, ${papSpot.d}m away)`, papSpot.d > 3);
 
 // ---------- superboss ----------
 const bossRes = await page.evaluate(() => {

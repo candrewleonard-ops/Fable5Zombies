@@ -263,7 +263,12 @@ export function createWorld(scene) {
     const h = 0.32 * (i + 1);
     boxMesh(0.34, h, 1.5, MAT.wall, sx, h / 2, 9.05);
   }
-  boxMesh(3.9, 3.2, 0.14, MAT.wood, -11.6, 1.6, 8.22); // stringer
+  // stringer — decorative only. It sat flush against the staircase's low-z
+  // edge as a solid collider, pinching the already-narrow 1.5m-wide stair
+  // corridor down to under a meter; combined with multiple zombies climbing
+  // at once (separation pushes them sideways) this jammed the whole horde
+  // trying to reach UPPER. Purely visual now.
+  boxMesh(3.9, 3.2, 0.14, MAT.wood, -11.6, 1.6, 8.22, { solid: false });
 
   // columns / beams / rails
   boxMesh(0.7, 6.4, 0.7, MAT.wall, 5, 3.2, -3);
@@ -314,7 +319,11 @@ export function createWorld(scene) {
     scene.add(light);
     bulbs.push({ light, mesh: b, base: 26, seed: Math.random() * 10 });
   }
-  bulb(0, 4.6, -5, true, 1.75);
+  // NOTE: point-light shadow casters use 6-face cubemap shadow passes — each
+  // one is dramatically more expensive than the single directional moonlight
+  // shadow (measured: two of these alone cost >2s/frame). Keep bulbs
+  // shadowless; the moonlight already grounds the scene with real shadows.
+  bulb(0, 4.6, -5, false, 1.75);
   bulb(-8, 2.72, -3, false, 0.5);   // under the west-wing mezzanine
   bulb(-10, 5.7, -5, false, 0.7);   // west wing (upstairs expansion)
   bulb(9.5, 4.4, 4.5, false, 1.95);
@@ -322,7 +331,7 @@ export function createWorld(scene) {
   bulb(2, 2.72, 2.5);
   bulb(-20, 2.72, 4);
   bulb(9.5, 2.72, 14);
-  bulb(-4, 5.75, 6, true, 0.6);
+  bulb(-4, 5.75, 6, false, 0.6);
   bulb(8, 4.6, -7, false, 1.75);   // MAIN east corner
   bulb(-11.5, 2.72, 5, false, 0.5); // under-mezz west
   bulb(-23, 2.72, 8.5, false, 0.5); // armory south
@@ -618,7 +627,8 @@ export function createWorld(scene) {
     const h = 0.345 * (i + 1);
     boxMesh(1.3, h, 0.36, MAT.wall, -12.3, 3.2 + h / 2, 1.98 + i * 0.345);
   }
-  boxMesh(0.14, 3.45, 3.6, MAT.wood, -11.58, 4.92, 3.5); // stair stringer wall
+  // decorative only — same pinch risk as the MAIN stringer below
+  boxMesh(0.14, 3.45, 3.6, MAT.wood, -11.58, 4.92, 3.5, { solid: false });
   // west-wing railing (decorative)
   boxMesh(0.09, 0.09, 9.9, MAT.woodDark, -6.05, 4.18, -5, { solid: false, cast: false });
   for (let z = -9.5; z <= -0.5; z += 2.25) boxMesh(0.07, 0.9, 0.07, MAT.woodDark, -6.05, 3.65, z, { solid: false, cast: false });
@@ -761,7 +771,11 @@ export function createWorld(scene) {
     scene.add(pallet);
   }
 
-  const papPos = new THREE.Vector3(8.5, 0, 17.2);
+  // Against the STORAGE west wall (x=5.2, solid — no window/door nearby).
+  // The old spot (8.5, 17.2) sat almost exactly on the STORAGE window's vault
+  // landing point (9, 16.8), so zombies vaulted in and immediately clipped
+  // into the machine's collider — this spot has clearance on every side.
+  const papPos = new THREE.Vector3(6.4, 0, 13.2);
 
   // ---------- campsite ----------
   function palisade(x, z, len, alongX) {

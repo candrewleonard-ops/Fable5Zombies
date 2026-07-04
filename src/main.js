@@ -56,7 +56,8 @@ const zombies = new ZombieManager(scene, world, player, effects);
 const hud = new HUD();
 const icons = new IconRenderer();
 const box = new MysteryBox(scene, world);
-const pap = new PackAPunch(scene, world, effects);
+// ry=PI/2 faces the machine's tray out from the STORAGE west wall, into the room
+const pap = new PackAPunch(scene, world, effects, world.papPos, Math.PI / 2);
 const build = new BuildSystem(scene, world, player, camera);
 const car = new CarSys(scene, world, player, camera);
 
