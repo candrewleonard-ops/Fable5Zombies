@@ -927,7 +927,6 @@ function doInteract(it, dt) {
       } else audio.deny();
       break;
     case 'perk': {
-      if (player.perks.size >= 4) { hud.showMsg('Max 4 perks'); audio.deny(); break; }
       const cost = ECON.perks[it.pm.key].cost;
       if (spend(cost)) {
         player.perks.add(it.pm.key);
