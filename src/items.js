@@ -345,7 +345,7 @@ export const ECON = {
   boxCost: 950,
   papCost: 2500,
   trapCost: 1000,
-  powerCost: 4000,
+  powerCost: 1000,
   buildRefund: 1, // wood returned on remove
   doorCosts: [750, 1000, 1250, 1500],
   fundOfficeCost: 2500,
