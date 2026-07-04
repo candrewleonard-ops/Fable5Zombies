@@ -20,6 +20,7 @@ import { buildMines } from './mines.js';
 import { buildVillage } from './village.js';
 import { Market, GunStore, Combiner, Quests } from './economy.js';
 import { buildFacility } from './facility.js';
+import { Barrels } from './barrels.js';
 import { Laptop } from './laptop.js';
 import {
   WEAPONS, weaponDef, ECON, ROUND, POWERUPS, BUILD_MATS, TOOL_DEFS,
@@ -64,7 +65,8 @@ const state = {
   playing: false, paused: false, round: 0, points: ECON.startPoints,
   kills: 0, toSpawn: 0, spawnT: 2, intermission: 0, time: 0,
   boss: null, won: false,
-  instaT: 0, berserkT: 0, gasT: 0, mineT: 0,
+  instaT: 0, berserkT: 0, doubleT: 0, gasT: 0, mineT: 0,
+  markus: null,
 };
 
 const keys = new Set();
@@ -95,6 +97,7 @@ const mobs = new Mobs(scene, effects, drops);
 const mines = buildMines(scene, world, harvest, drops);
 const village = buildVillage(scene, world);
 const facility = buildFacility(scene, world, effects, player);
+const barrels = new Barrels(scene, world, effects);
 const market = new Market(village.tvCanvas, village.tvTex);
 const store = new GunStore();
 const combiner = new Combiner();
@@ -128,9 +131,9 @@ function addPoints(n) {
   hud.setPoints(state.points);
   hud.feed(n);
 }
-// combat earnings respect armor tints (Gucci pays)
+// combat earnings respect armor tints (Gucci pays) and Double Points
 function addCombatPoints(n) {
-  addPoints(Math.round(n * inventory.tintBonuses().pts));
+  addPoints(Math.round(n * inventory.tintBonuses().pts * (state.doubleT > 0 ? 2 : 1)));
 }
 function spend(n) {
   if (state.points < n) { hud.showMsg('Not enough points'); return false; }
@@ -236,10 +239,18 @@ weapons.onHit = (z, dmg, part) => {
 weapons.onGoop = (point, dmg) => spawnGoop(point, dmg);
 weapons.mobs = {
   list: mobs.list,
-  raycast: (o, d, m) => mobs.raycast(o, d, m) || facility.raycast(o, d, m),
+  raycast: (o, d, m) => mobs.raycast(o, d, m) || barrels.raycast(o, d, m) || facility.raycast(o, d, m),
   damage: (mob, dmg, point, dir) =>
-    mob.kind === 'cow' ? mobs.damage(mob, dmg, point, dir) : facility.damage(mob, dmg, point, dir),
-  blast: (at, r, dmg) => facility.blast(at, r, dmg),
+    mob.kind === 'cow' ? mobs.damage(mob, dmg, point, dir)
+      : mob.kind === 'barrel' ? barrels.damage(mob)
+      : facility.damage(mob, dmg, point, dir),
+  blast: (at, r, dmg) => { facility.blast(at, r, dmg); barrels.checkBlast(at, r); },
+};
+barrels.onBlast = (center, radius, dmg) => {
+  zombies.blastDamage(center, radius, dmg);
+  facility.blast(center, radius, dmg);
+  const dP = player.pos.clone().setY(player.pos.y + 1).distanceTo(center);
+  if (dP < radius * 0.7 && !player.dead) player.takeDamage(30);
 };
 
 zombies.onKill = (z, headshot) => {
@@ -348,6 +359,14 @@ powerups.onTake = (key) => {
     }
     updateAmmoHUD();
     inventory.renderAll();
+  } else if (key === 'double') {
+    state.doubleT = def.dur;
+  } else if (key === 'carpenter') {
+    let n = 0;
+    for (const win of world.windows) while (world.addBoard(win)) n++;
+    addPoints(200);
+    audio.boardAdd();
+    if (n) hud.showMsg(`Every barricade rebuilt (+200)`);
   } else if (key === 'berserker') {
     state.berserkT = def.dur;
     weapons.berserk = true;
@@ -355,6 +374,68 @@ powerups.onTake = (key) => {
     hud.berserkFx(true);
   }
 };
+
+// ---------------- THE MARKUS SPECIAL ----------------
+// Empty hands + F on a zombie: grab it where it hurts and squeeze until the
+// pop. 75% of its max HP, +200 points on the kill. Warzone-finisher energy.
+function findMarkusVictim() {
+  const fwd = player.eyeDirection().setY(0).normalize();
+  let best = null, bd = 1.9;
+  for (const z of zombies.zombies) {
+    if (z.dead || !z.alive || z.boss || z.state === 'grabbed') continue;
+    if (z.state !== 'hunt' && z.state !== 'tearing') continue;
+    const to = new THREE.Vector3(z.pos.x - player.pos.x, 0, z.pos.z - player.pos.z);
+    const d = to.length();
+    if (d > bd || Math.abs(z.pos.y - player.pos.y) > 1.4) continue;
+    to.normalize();
+    if (to.dot(fwd) < 0.4 && d > 0.9) continue;
+    bd = d;
+    best = z;
+  }
+  return best;
+}
+
+function startMarkus(z) {
+  state.markus = { z, t: 1.25, popped: false };
+  z.state = 'grabbed';
+  z.grabT = 1.45;
+  z.kb.set(0, 0, 0);
+  const fwd = player.eyeDirection().setY(0).normalize();
+  z.pos.set(player.pos.x + fwd.x * 1.05, player.pos.y, player.pos.z + fwd.z * 1.05);
+  weapons.finisherT = 1.25;
+  weapons.meleeCd = 1.8;
+  player.lockT = 1.15; // planted while you work
+  audio.markusSqueeze();
+}
+
+function updateMarkus(dt) {
+  const m = state.markus;
+  if (!m) return;
+  m.t -= dt;
+  const z = m.z;
+  if (!m.popped && m.t <= 0.2 && !z.dead && z.alive) {
+    m.popped = true;
+    const at = z.pos.clone().setY(z.pos.y + 0.85 * z.scale);
+    effects.blood(at, new THREE.Vector3(0, 0.7, 0), 30, 7, z.pos.y);
+    effects.bloodDecal(z.pos.x, z.pos.z, z.pos.y + 0.02, 1.1);
+    audio.markusPop();
+    player.shake = Math.min(0.7, player.shake + 0.3);
+    const res = z.takeDamage(z.maxHp * 0.75, 'body', at, null);
+    if (res?.killed) {
+      addCombatPoints(200);
+      hud.banner('THE MARKUS SPECIAL');
+      hud.showMsg('+200 — he felt that in the afterlife');
+    } else if (!z.dead) {
+      // it lives… barely. Send it hobbling.
+      z.state = 'hunt';
+      const away = new THREE.Vector3(z.pos.x - player.pos.x, 0, z.pos.z - player.pos.z).normalize();
+      z.applyKnockback(away, 3.5);
+      z.slowT = 2.5;
+      hud.showMsg('THE MARKUS SPECIAL — it limps away');
+    }
+  }
+  if (m.t <= 0) state.markus = null;
+}
 
 // ---------------- nuclear goop ----------------
 function spawnGoop(point, dmg) {
@@ -1223,6 +1304,8 @@ function updateGame(dt) {
       const latched = facility.latchedCount();
       const canGuide = weapons.item && weaponDef(weapons.item).guided &&
         weapons.lastMissile && !weapons.guiding;
+      const fists = !inventory.selectedItem();
+      const markusVictim = fists && !state.markus && weapons.meleeCd <= 0 ? findMarkusVictim() : null;
       const threat = zombies.zombies.some((z) =>
         !z.dead && z.alive && z.state === 'hunt' &&
         Math.abs(z.pos.y - player.pos.y) < 1.6 &&
@@ -1232,13 +1315,16 @@ function updateGame(dt) {
       if (latched > 0) {
         hud.setPrompt(`<b>MASH F</b> — RIP IT OFF (${latched})`);
         if (fEdge) { facility.shakeOne(); hud.damageFlash(); }
+      } else if (markusVictim) {
+        hud.setPrompt('<b>F</b> — THE MARKUS SPECIAL');
+        if (fEdge) startMarkus(markusVictim);
       } else if (canGuide && fEdge) {
         if (weapons.startGuiding()) hud.showMsg('Missile control — steer with the mouse');
-      } else if (threat && fEdge && weapons.meleeCd <= 0) {
+      } else if (threat && fEdge && weapons.meleeCd <= 0 && !fists) {
         weapons.melee(zombies);
         hud.setPrompt(it ? it.prompt : null);
       } else {
-        hud.setPrompt(it ? it.prompt : (threat ? '<b>F</b> — Shove'
+        hud.setPrompt(it ? it.prompt : (threat && !fists ? '<b>F</b> — Shove'
           : canGuide ? '<b>F</b> — Guide the missile' : null));
         if (it) doInteract(it, dt);
         else {
@@ -1249,6 +1335,19 @@ function updateGame(dt) {
         }
       }
       fEdge = false;
+
+      // sliding bowls the horde over
+      if (player.slideT > 0) {
+        for (const z of zombies.zombies) {
+          if (z.dead || !z.alive || z.state === 'grabbed') continue;
+          const to = new THREE.Vector3(z.pos.x - player.pos.x, 0, z.pos.z - player.pos.z);
+          const d = to.length();
+          if (d < 1.5 && Math.abs(z.pos.y - player.pos.y) < 1.6 && z.kb.lengthSq() < 4) {
+            z.applyKnockback(to.normalize(), z.boss ? 0.5 : 3.6);
+            audio.hit();
+          }
+        }
+      }
     } else {
       // driving: exit prompt + F
       hud.setPrompt(Math.abs(car.speed) < 1 ? '<b>F</b> — Exit vehicle' : null);
@@ -1276,7 +1375,9 @@ function updateGame(dt) {
     groundGuns.update(dt, player.pos, (p) => groundHeightAt(world.colliders, p.x, p.z, p.y + 0.4, 0.25));
     market.update(dt);
     facility.update(dt);
+    barrels.update(dt);
     updateGoops(dt);
+    updateMarkus(dt);
 
     // powerup timers
     if (state.instaT > 0) {
@@ -1291,8 +1392,10 @@ function updateGame(dt) {
         hud.showMsg('The rage subsides…');
       }
     }
+    if (state.doubleT > 0) state.doubleT -= dt;
     const puActive = [];
     if (state.instaT > 0) puActive.push({ name: 'INSTA-KILL', icon: '💀', t: state.instaT, css: '#ff6a5a' });
+    if (state.doubleT > 0) puActive.push({ name: 'DOUBLE POINTS', icon: '✖2', t: state.doubleT, css: '#f7d774' });
     if (state.berserkT > 0) puActive.push({ name: 'BERSERKER', icon: '💪', t: state.berserkT, css: '#ff2a90' });
     hud.powerupHUD(puActive);
 
@@ -1341,19 +1444,23 @@ function updateGame(dt) {
   // death gate (works no matter what killed you, mid-frame or not)
   if (state.playing && player.dead) {
     if (player.perks.has('revive')) {
-      // Quick Revive: cheat death once
+      // Quick Revive: cheat death once — full heal, 3s of invulnerability,
+      // and the horde gets hurled away so it actually FEELS like a revive
       player.perks.delete('revive');
       hud.perkHUD(player.perks);
       player.dead = false;
-      player.health = Math.max(60, player.maxHealth * 0.5);
+      player.health = player.maxHealth;
       player.timeSinceHurt = 0;
-      hud.banner('QUICK REVIVE');
+      player.invulnT = 3;
+      hud.banner('⚕ QUICK REVIVE ⚕');
+      hud.showMsg('Back from the brink — 3s of grace, RUN');
       audio.heal();
-      // blast the horde back so you have a heartbeat to run
+      audio.perkJingle();
+      effects.explosion(player.pos.clone().setY(player.pos.y + 1), 0x3a7cc8, 5);
       for (const z of zombies.zombies) {
         if (z.dead || !z.alive) continue;
         const to = new THREE.Vector3(z.pos.x - player.pos.x, 0, z.pos.z - player.pos.z);
-        if (to.length() < 5) z.applyKnockback(to.normalize(), 6);
+        if (to.length() < 8) z.applyKnockback(to.normalize(), 9);
       }
     } else die();
   }
@@ -1384,7 +1491,8 @@ if (TEST_MODE) {
     THREE, scene, camera, renderer, state,
     player, world, zombies, weapons, inventory, hud, box, pap, build, car, craft, drops,
     harvest, mobs, mines, village, facility, market, store, combiner, quests, laptop,
-    powerups, groundGuns, goops,
+    powerups, groundGuns, goops, barrels,
+    startMarkus, findMarkusVictim,
     addPoints, spend, startRound, spawnZombie, spawnBoss, dropItemIntoWorld,
     nearestInteract, doInteract: (it) => { fEdge = true; doInteract(it, 1 / 60); fEdge = false; },
     start, win,

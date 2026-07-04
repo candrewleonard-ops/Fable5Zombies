@@ -385,6 +385,8 @@ export function enchantLabel(e) { return `${e.key[0].toUpperCase()}${e.key.slice
 export const POWERUPS = {
   insta:     { name: 'INSTA-KILL', color: 0xff4a3a, dur: 20, icon: '💀' },
   maxammo:   { name: 'MAX AMMO', color: 0xffd27f, dur: 0, icon: '🎁' },
+  double:    { name: 'DOUBLE POINTS', color: 0xf7d774, dur: 30, icon: '✖2' },
+  carpenter: { name: 'CARPENTER', color: 0xd8a45a, dur: 0, icon: '🔨' },
   berserker: { name: 'BERSERKER', color: 0xff2a90, dur: 30, icon: '💪' },
 };
 

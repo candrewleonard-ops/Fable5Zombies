@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { POWERUPS } from './items.js';
+import { makeGlowSprite } from './effects.js';
 import { audio } from './audio.js';
 
 // Classic CoD-zombies powerup drops: spinning glowing pickups that despawn.
@@ -36,6 +37,30 @@ function makePowerupMesh(key) {
       bullet.position.set(-0.1 + i * 0.1, 0.24, 0);
       core.add(bullet);
     }
+  } else if (key === 'double') {
+    // ×2 coin
+    core = new THREE.Group();
+    const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.06, 18),
+      new THREE.MeshStandardMaterial({ color: 0xc8a742, emissive: 0xf7d774, emissiveIntensity: 0.6, metalness: 0.85, roughness: 0.25 }));
+    coin.rotation.x = Math.PI / 2;
+    core.add(coin);
+    for (const s of [-1, 1]) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.22, 0.03),
+        new THREE.MeshStandardMaterial({ color: 0x3a2c10 }));
+      bar.rotation.z = s * 0.5;
+      bar.position.set(s * 0.05, 0, 0.05);
+      core.add(bar);
+    }
+  } else if (key === 'carpenter') {
+    // hammer
+    core = new THREE.Group();
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.5, 8),
+      new THREE.MeshStandardMaterial({ color: 0x6b4a2a, emissive: 0xd8a45a, emissiveIntensity: 0.25, roughness: 0.8 }));
+    core.add(handle);
+    const headM = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.12),
+      new THREE.MeshStandardMaterial({ color: 0x565a63, emissive: 0xd8a45a, emissiveIntensity: 0.3, metalness: 0.8, roughness: 0.3 }));
+    headM.position.y = 0.26;
+    core.add(headM);
   } else {
     // berserker: flexing arm silhouette — bicep + fist
     core = new THREE.Group();
@@ -52,9 +77,9 @@ function makePowerupMesh(key) {
     core.add(fist);
   }
   g.add(core);
-  const light = new THREE.PointLight(def.color, 5, 6, 1.6);
-  light.position.y = 0.2;
-  g.add(light);
+  const glowSprite = makeGlowSprite(def.color, 1.8);
+  glowSprite.position.y = 0.1;
+  g.add(glowSprite);
   const halo = new THREE.Mesh(
     new THREE.TorusGeometry(0.42, 0.02, 8, 24),
     new THREE.MeshBasicMaterial({ color: def.color, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false })
@@ -72,10 +97,14 @@ export class Powerups {
   }
 
   maybeDrop(pos, mult = 1) {
-    // ~2.5% per kill, weighted; vulture perk passes mult 2
-    if (Math.random() > 0.025 * mult) return;
+    // ~3% per kill, weighted; vulture perk passes mult 2
+    if (Math.random() > 0.03 * mult) return;
     const roll = Math.random();
-    const key = roll < 0.4 ? 'insta' : roll < 0.75 ? 'maxammo' : 'berserker';
+    const key = roll < 0.28 ? 'insta'
+      : roll < 0.5 ? 'maxammo'
+      : roll < 0.72 ? 'double'
+      : roll < 0.86 ? 'carpenter'
+      : 'berserker';
     this.spawn(pos, key);
   }
 

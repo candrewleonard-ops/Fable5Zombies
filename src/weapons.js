@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { WEAPONS, weaponDef } from './items.js';
 import { raycastColliders, groundHeightAt, baseGroundAt } from './physics.js';
+import { makeGlowSprite } from './effects.js';
 import { audio } from './audio.js';
 
 // Viewmodel + shooting for the Undead Bunker arsenal.
@@ -394,6 +395,7 @@ export class WeaponSystem {
 
     this.meleeCd = 0;
     this.meleeAnim = 0;         // 1 -> 0 bash swing
+    this.finisherT = 0;         // Markus Special hand animation
 
     this.heat = 0;              // Dragonspit flamethrower heat (0..maxHeat)
     this.overheated = false;
@@ -606,16 +608,15 @@ export class WeaponSystem {
         fin.translateY(0.08);
         mesh.add(fin);
       }
-      const glow = new THREE.PointLight(0xffb347, 6, 5, 2);
-      glow.position.z = 0.3;
+      const glow = makeGlowSprite(0xffb347, 1.2);
+      glow.position.z = 0.34;
       mesh.add(glow);
     } else {
       mesh = new THREE.Mesh(
         new THREE.SphereGeometry(0.09, 10, 10),
         new THREE.MeshBasicMaterial({ color: p.color })
       );
-      const light = new THREE.PointLight(p.color, 8, 6, 2);
-      mesh.add(light);
+      mesh.add(makeGlowSprite(p.color, 0.9));
     }
     mesh.position.copy(from);
     if (this.scene) this.scene.add(mesh);
@@ -966,6 +967,25 @@ export class WeaponSystem {
       this.root.rotation.x += k * 0.55;
       this.root.rotation.y += k * 0.35;
       this.root.rotation.z -= k * 0.25;
+    }
+
+    // The Markus Special: hands lunge low and center, then three brutal
+    // clench pulses building to the pop
+    if (this.finisherT > 0) {
+      this.finisherT -= dt;
+      const total = 1.25;
+      const k = 1 - Math.max(0, this.finisherT) / total;   // 0 → 1
+      const reach = Math.min(1, k * 5);                    // fast lunge in
+      const clench = Math.max(0, Math.sin(k * Math.PI * 6)); // three pulses
+      this.root.position.z -= reach * 0.34;
+      this.root.position.y -= reach * 0.3;
+      this.root.rotation.x += reach * 0.5;
+      // hands squeeze together on each pulse
+      this.root.scale.x = 1 - clench * 0.45;
+      this.root.position.x += (Math.random() - 0.5) * clench * 0.02; // strain tremor
+      if (this.finisherT <= 0) this.root.scale.x = 1;
+    } else if (this.root.scale.x !== 1) {
+      this.root.scale.x = 1;
     }
   }
 

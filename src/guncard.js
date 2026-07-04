@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GRADES, weaponDef, WEAPONS, enchantLabel } from './items.js';
 import { buildGunModel, makeRayGunMesh } from './weapons.js';
+import { makeGlowSprite } from './effects.js';
 
 // Borderlands-2-style dropped weapons: guns lie in the world under a colored
 // rarity beam, hovering near one pops the stat card, F picks it up.
@@ -63,9 +64,9 @@ export class GroundGuns {
     );
     beam.position.y = 1.6;
     group.add(beam);
-    const light = new THREE.PointLight(grade.glow, 2.2, 3.4, 1.8);
-    light.position.y = 0.6;
-    group.add(light);
+    const glowSprite = makeGlowSprite(grade.glow, 1.6);
+    glowSprite.position.y = 0.45;
+    group.add(glowSprite);
     group.position.copy(pos);
     this.scene.add(group);
     const entry = {

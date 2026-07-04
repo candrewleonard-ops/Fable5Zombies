@@ -90,7 +90,7 @@ export class CarSys {
     }
     this.kind = kind;
     this.stats = kind === 'lambo'
-      ? { acc: 24, top: 27, rev: -8 }   // the Ravager LX flies
+      ? { acc: 48, top: 54, rev: -12 }  // the Ravager LX properly flies now
       : { acc: 13, top: 15, rev: -5.5 };
     if (!this.mesh) {
       this.mesh = kind === 'lambo' ? buildLamboModel() : buildCarModel();
@@ -229,7 +229,7 @@ export class CarSys {
       this.camera.position.copy(local);
       const look = new THREE.Vector3(this.pos.x + fwd.x * 2.5, this.pos.y + 0.9, this.pos.z + fwd.z * 2.5);
       this.camera.lookAt(look);
-      this.camera.fov = 72 + Math.abs(this.speed);
+      this.camera.fov = 72 + Math.min(28, Math.abs(this.speed) * 0.6);
       this.camera.updateProjectionMatrix();
     }
 

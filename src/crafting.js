@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CRAFT_POOLS, makeWeaponItem, makeMaterial } from './items.js';
+import { makeGlowSprite } from './effects.js';
 import { audio } from './audio.js';
 
 // Weapon-craft sequences (magic wand + per-recipe FX), zombie material drops
@@ -154,8 +155,8 @@ function buildDropModel(mat) {
       g.add(lump);
     }
   }
-  const glow = new THREE.PointLight(mat === 'wood' ? 0xd8a45a : 0x8fb6ff, 0.9, 2.2, 2);
-  glow.position.y = 0.3;
+  const glow = makeGlowSprite(mat === 'wood' ? 0xd8a45a : 0x8fb6ff, 0.7);
+  glow.position.y = 0.2;
   g.add(glow);
   return g;
 }
@@ -178,8 +179,8 @@ function buildLootModel(kind, colorHex) {
     box.rotation.y = 0.6;
     g.add(box);
   }
-  const glow = new THREE.PointLight(colorHex, 1.4, 2.6, 2);
-  glow.position.y = 0.4;
+  const glow = makeGlowSprite(colorHex, 1.0);
+  glow.position.y = 0.3;
   g.add(glow);
   return g;
 }

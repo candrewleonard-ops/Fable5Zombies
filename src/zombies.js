@@ -433,6 +433,25 @@ export class Zombie {
         }
         break;
       }
+      case 'grabbed': {
+        // The Markus Special — held by the tenders, in visible agony
+        this.grabT -= dt;
+        this.t += dt * 14;
+        const p = this.parts;
+        this.face(P.pos.x, P.pos.z, dt, 12);
+        p.torso.rotation.x = 1.05 + Math.sin(this.t) * 0.08;        // doubled over
+        p.neck.rotation.x = -0.9;                                    // head thrown up
+        p.legL.hip.rotation.x = 0.5; p.legR.hip.rotation.x = 0.5;
+        p.legL.hip.rotation.z = 0.35; p.legR.hip.rotation.z = -0.35; // knees buckle inward
+        p.legL.kn.rotation.x = 1.1; p.legR.kn.rotation.x = 1.1;
+        p.armL.sh.rotation.x = -2.4 + Math.sin(this.t * 1.3) * 0.5;  // arms flailing
+        p.armR.sh.rotation.x = -2.4 + Math.sin(this.t * 1.3 + 2) * 0.5;
+        p.armL.sh.rotation.z = Math.sin(this.t) * 0.6;
+        p.armR.sh.rotation.z = -Math.sin(this.t + 1) * 0.6;
+        p.hips.position.y = 0.72 + Math.abs(Math.sin(this.t * 2)) * 0.05; // trembling squat
+        if (this.grabT <= 0) this.state = 'hunt';
+        break;
+      }
       case 'dead': {
         this.deadT += dt;
         const k = Math.min(1, this.deadT * 2.4);
@@ -535,7 +554,7 @@ export class ZombieManager {
     this.raycaster.far = maxDist;
     const targets = [];
     for (const z of this.zombies) {
-      if (!z.dead && (z.state === 'hunt' || z.state === 'tearing' || z.state === 'vault' || z.state === 'toWindow')) {
+      if (!z.dead && (z.state === 'hunt' || z.state === 'tearing' || z.state === 'vault' || z.state === 'toWindow' || z.state === 'grabbed')) {
         targets.push(z.mesh);
       }
     }

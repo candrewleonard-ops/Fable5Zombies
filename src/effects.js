@@ -3,6 +3,38 @@ import * as THREE from 'three';
 // Pooled particle + tracer + casing + decal systems. One draw call for all
 // particles via a custom point shader with per-particle size/color/alpha.
 
+// Additive glow sprite — the cheap stand-in for a real PointLight. Adding or
+// removing actual lights at runtime forces three.js to recompile EVERY shader
+// in the scene (a visible freeze), so anything dynamic (loot, powerups,
+// projectiles, dropped guns) glows with one of these instead.
+const glowTexCache = new Map();
+function glowTexture(colorHex) {
+  if (glowTexCache.has(colorHex)) return glowTexCache.get(colorHex);
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const col = new THREE.Color(colorHex);
+  const rgb = `${Math.round(col.r * 255)},${Math.round(col.g * 255)},${Math.round(col.b * 255)}`;
+  const grad = g.createRadialGradient(32, 32, 2, 32, 32, 31);
+  grad.addColorStop(0, `rgba(255,255,255,0.9)`);
+  grad.addColorStop(0.25, `rgba(${rgb},0.65)`);
+  grad.addColorStop(1, `rgba(${rgb},0)`);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(c);
+  glowTexCache.set(colorHex, tex);
+  return tex;
+}
+
+export function makeGlowSprite(colorHex, scale = 1) {
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glowTexture(colorHex), transparent: true, opacity: 0.85,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  sprite.scale.set(scale, scale, 1);
+  return sprite;
+}
+
 const MAX_PARTICLES = 900;
 
 const PARTICLE_VERT = `
@@ -120,6 +152,15 @@ export class Effects {
       this.decals.push({ mesh: m, life: 0 });
     }
     this.decalCursor = 0;
+
+    // ---- pooled explosion flash lights (never added/removed → no recompiles) ----
+    this.flashes = [];
+    for (let i = 0; i < 4; i++) {
+      const light = new THREE.PointLight(0xffffff, 0, 14, 1.5);
+      scene.add(light);
+      this.flashes.push(light);
+    }
+    this.flashCursor = 0;
   }
 
   // ---------------- particles ----------------
@@ -197,10 +238,12 @@ export class Effects {
         .normalize().multiplyScalar(2 + Math.random() * 5);
       this._emit(at, v, 0.3 + Math.random() * 0.4, warm, 0.07 + Math.random() * 0.1, 10, 2);
     }
-    const flash = new THREE.PointLight(colorHex, 30, radius * 3.5, 1.5);
+    const flash = this.flashes[this.flashCursor];
+    this.flashCursor = (this.flashCursor + 1) % this.flashes.length;
+    flash.color.setHex(colorHex);
+    flash.distance = radius * 3.5;
+    flash.intensity = 30;
     flash.position.copy(at);
-    this.scene.add(flash);
-    setTimeout(() => this.scene.remove(flash), 130);
   }
 
   // ---------------- tracer ----------------
@@ -258,6 +301,11 @@ export class Effects {
   }
 
   update(dt) {
+    // explosion flashes decay in place
+    for (const f of this.flashes) {
+      if (f.intensity > 0.01) f.intensity *= Math.exp(-18 * dt);
+    }
+
     // particles
     for (let i = 0; i < this.pCount; i++) {
       if (this.pLife[i] <= 0) continue;

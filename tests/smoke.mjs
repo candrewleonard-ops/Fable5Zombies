@@ -426,6 +426,8 @@ const repair = await page.evaluate(() => {
   const g = window.__game;
   const win = g.world.windows.find((w) => w.boards.some((b) => !b.on) && !w.gate);
   if (!win) return { skip: true };
+  // pause any zombie mid-tear so rips don't race the repairs
+  for (const z of g.zombies.zombies) if (z.state === 'tearing') z.tearTimer = 99;
   const off = win.boards.filter((b) => !b.on).length;
   g.teleport(win.inner.x, win.floorY + 0.1, win.inner.z);
   g.pressF();
@@ -511,6 +513,135 @@ push(`W.A.V.E. cannon blasts the horde (${JSON.stringify(legends)})`,
   legends.skip || (legends.waveHit && legends.waveVisual));
 push(`★ The Blaster: blastback + 50% max-HP corridor`,
   legends.skip || legends.skipB || (legends.behindHalved && legends.knocked));
+
+// ---------- THE MARKUS SPECIAL ----------
+const markus = await page.evaluate(() => {
+  const g = window.__game;
+  const hunters = g.zombies.zombies.filter((z) => !z.dead && z.alive && z.state === 'hunt' && !z.boss);
+  if (!hunters.length) return { skip: true };
+  const z = hunters[0];
+  hunters.slice(1).forEach((h, i) => h.pos.set(30 + i * 2, 0, 30)); // only one candidate
+  g.inventory.reset(); // bare hands
+  g.inventory.select(0);
+  g.teleport(0, 0.1, 4);
+  g.lookAt(0, 0);
+  z.pos.set(0, 0, 3);
+  z.kb.set(0, 0, 0); // The Blaster test may have just launched this one
+  z.slowT = 0;
+  z.hp = z.maxHp; // fresh — should survive at 25% and limp off
+  g.simulate(0.05);
+  z.pos.set(0, 0, 3);
+  const victim = g.findMarkusVictim();
+  g.pressF(); g.simulate(0.1); g.releaseF();
+  const grabbed = z.state === 'grabbed';
+  const anim = g.weapons.finisherT > 0;
+  const pts = g.state.points;
+  g.simulate(1.4); // squeeze… pop
+  const survived = { hp: Math.round(z.hp), max: Math.round(z.maxHp), state: z.state, dead: z.dead };
+  // now finish a wounded one for the +200
+  const z2 = g.zombies.zombies.find((y) => !y.dead && y.alive && y.state === 'hunt' && !y.boss);
+  let bounty = null;
+  if (z2) {
+    z2.hp = z2.maxHp * 0.3; // squeeze will kill
+    z2.pos.set(0, 0, 3);
+    g.simulate(1.9); // melee cd
+    const p2 = g.state.points;
+    g.pressF(); g.simulate(0.1); g.releaseF();
+    g.simulate(1.4);
+    bounty = { dead: z2.dead, gained: g.state.points - p2 };
+  }
+  return { found: !!victim, grabbed, anim, survived, bounty };
+});
+push(`Markus Special grabs + squeezes 75% max HP (${JSON.stringify(markus.survived)})`,
+  markus.skip || (markus.found && markus.grabbed && markus.anim && !markus.survived.dead &&
+    Math.abs(markus.survived.hp - markus.survived.max * 0.25) < 2));
+push(`Markus Special kill pays +200 (${JSON.stringify(markus.bounty)})`,
+  markus.skip || !markus.bounty || (markus.bounty.dead && markus.bounty.gained >= 250));
+
+// ---------- crouch + slide ----------
+const slide = await page.evaluate(() => {
+  const g = window.__game;
+  g.teleport(-17, 0.1, 22); // open campsite
+  g.lookAt(0, 0);
+  // crouch lowers the eye
+  g.pressKey('ControlLeft');
+  g.simulate(0.7);
+  const crouchEye = g.player.smoothedEyeY;
+  const crouching = g.player.crouching;
+  g.releaseKey('ControlLeft');
+  g.simulate(0.7);
+  const standEye = g.player.smoothedEyeY;
+  // sprint then slide
+  g.pressKey('KeyW'); g.pressKey('ShiftLeft');
+  g.simulate(1.0);
+  const preSpeed = Math.hypot(g.player.vel.x, g.player.vel.z);
+  g.pressKey('ControlLeft');
+  g.simulate(0.15);
+  const sliding = g.player.slideT > 0;
+  const slideSpeed = Math.hypot(g.player.vel.x, g.player.vel.z);
+  // a zombie in the lane gets bowled over
+  const z = g.zombies.zombies.find((y) => !y.dead && y.alive && y.state === 'hunt');
+  let bowled = null;
+  if (z && sliding) {
+    z.pos.set(g.player.pos.x, 0, g.player.pos.z - 1);
+    z.kb.set(0, 0, 0);
+    g.simulate(0.1);
+    bowled = z.kb.length() > 1.5;
+  }
+  g.releaseKey('ControlLeft'); g.releaseKey('KeyW'); g.releaseKey('ShiftLeft');
+  g.simulate(1);
+  return { crouching, crouchEye, standEye, sliding, preSpeed, slideSpeed, bowled };
+});
+push(`crouch lowers view (${slide.crouchEye.toFixed(2)} vs ${slide.standEye.toFixed(2)})`,
+  slide.crouching && slide.crouchEye < 1.2 && slide.standEye > 1.5);
+push(`sprint+ctrl slides fast + bowls zombies (spd ${slide.slideSpeed.toFixed(1)}, bowled=${slide.bowled})`,
+  slide.sliding && slide.slideSpeed > slide.preSpeed && slide.bowled !== false);
+
+// ---------- explosive barrels ----------
+const barrelRes = await page.evaluate(() => {
+  const g = window.__game;
+  const b = g.barrels.list.find((x) => !x.dead);
+  const z = g.zombies.zombies.find((y) => !y.dead && y.alive);
+  if (z) { z.pos.set(b.pos.x + 1.5, 0, b.pos.z); z.hp = 200; }
+  const solidsBefore = g.world.colliders.length;
+  g.barrels.damage({ kind: 'barrel', b });
+  g.simulate(0.1);
+  return {
+    exploded: b.dead,
+    solidGone: g.world.colliders.length === solidsBefore - 1,
+    zombieCaught: z ? z.dead : null,
+    count: g.barrels.list.length,
+  };
+});
+push(`explosive barrel detonates + kills (${JSON.stringify(barrelRes)})`,
+  barrelRes.exploded && barrelRes.solidGone && barrelRes.zombieCaught !== false && barrelRes.count >= 10);
+
+// ---------- double points + carpenter powerups ----------
+const pu2 = await page.evaluate(() => {
+  const g = window.__game;
+  g.powerups.spawn(g.player.pos.clone(), 'double');
+  g.simulate(0.4);
+  const doubled = g.state.doubleT > 0;
+  const before = g.state.points;
+  // rip a board somewhere, then carpenter restores it
+  const win = g.world.windows.find((w) => !w.gate && w.boards.some((x) => x.on));
+  g.world.ripBoard(win, win.boards.find((x) => x.on));
+  g.powerups.spawn(g.player.pos.clone(), 'carpenter');
+  g.simulate(0.4);
+  const allBoarded = g.world.windows.filter((w) => !w.gate).every((w) => w.boards.every((x) => x.on));
+  return { doubled, paid: g.state.points > before, allBoarded };
+});
+push(`Double Points + Carpenter powerups (${JSON.stringify(pu2)})`, pu2.doubled && pu2.paid && pu2.allBoarded);
+
+// ---------- the stairwell pit is sealed ----------
+const pit = await page.evaluate(() => {
+  const g = window.__game;
+  g.world.rooms.UPPER.unlocked = true;
+  g.teleport(-13.5, 3.4, 9.1); // the old death-pocket west of the stair top
+  g.simulate(1);
+  return { y: g.player.pos.y };
+});
+push(`stairwell pit sealed (stands at y=${pit.y.toFixed(2)})`, pit.y > 3.0);
 
 // ---------- superboss ----------
 const bossRes = await page.evaluate(() => {
@@ -792,7 +923,7 @@ const lambo = await page.evaluate(() => {
   g.simulate(0.4);
   return { gotKeys, kind: g.car.kind, top: g.car.stats.top, deployed: g.car.deployed };
 });
-push(`Lambo buys for $1M + deploys fast (${lambo.kind}, top=${lambo.top})`, lambo.gotKeys && lambo.kind === 'lambo' && lambo.top > 20 && lambo.deployed);
+push(`Lambo buys for $1M + deploys FAST (${lambo.kind}, top=${lambo.top})`, lambo.gotKeys && lambo.kind === 'lambo' && lambo.top >= 54 && lambo.deployed);
 
 // ---------- spider boss: wake → eyes → fight → drops ----------
 const spider = await page.evaluate(() => {

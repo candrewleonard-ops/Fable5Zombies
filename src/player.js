@@ -56,6 +56,12 @@ export class Player {
     this.adsBlend = 0;
     this.baseFov = 75;
 
+    this.crouching = false;
+    this.slideT = 0;        // active slide time remaining
+    this.slideCd = 0;
+    this.slideVec = new THREE.Vector3();
+    this.lockT = 0;         // movement lock (finisher animation)
+
     this.bobPhase = 0;
     this.bobAmp = 0;
     this.smoothedEyeY = EYE_HEIGHT;
@@ -93,6 +99,7 @@ export class Player {
     if (this.dead) { this._updateRig(dt); return; }
 
     this.timeSinceHurt += dt;
+    this.invulnT = Math.max(0, (this.invulnT || 0) - dt);
 
     // ---- lean (Q/E) ----
     this.leanTarget = 0;
@@ -111,9 +118,22 @@ export class Player {
     this.adsBlend += (adsWant - this.adsBlend) * Math.min(1, dt * 9);
 
     // ---- movement ----
-    const fwd = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
-    const strafe = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
+    let fwd = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
+    let strafe = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
+    if (this.lockT > 0) { this.lockT -= dt; fwd = 0; strafe = 0; } // finisher grip
     this.sprinting = keys.has('ShiftLeft') && fwd > 0 && !this.ads;
+
+    // ---- crouch (Ctrl or C) + slide (sprint + Ctrl) ----
+    const crouchHeld = keys.has('ControlLeft') || keys.has('ControlRight') || keys.has('KeyC');
+    this.slideCd = Math.max(0, this.slideCd - dt);
+    const hVel = Math.hypot(this.vel.x, this.vel.z);
+    if (crouchHeld && this.sprinting && this.grounded && this.slideCd <= 0 && hVel > 4.5 && this.slideT <= 0) {
+      this.slideT = 0.8;
+      this.slideCd = 1.6;
+      this.slideVec.set(this.vel.x, 0, this.vel.z).normalize();
+      audio.slide();
+    }
+    this.crouching = (crouchHeld || this.slideT > 0) && this.grounded;
 
     const wish = new THREE.Vector3(strafe, 0, -fwd);
     if (wish.lengthSq() > 0) wish.normalize();
@@ -122,13 +142,23 @@ export class Player {
 
     const speed = BASE_SPEED * this.speedMult
       * (this.sprinting ? 1.42 : 1)
+      * (this.crouching && this.slideT <= 0 ? 0.5 : 1)
       * (this.adsBlend > 0.5 ? 0.55 : 1);
 
-    const target = wish.multiplyScalar(speed);
-    const control = this.grounded ? 1 : 0.4;
-    const accelK = Math.min(1, 12 * control * dt);
-    this.vel.x += (target.x - this.vel.x) * accelK;
-    this.vel.z += (target.z - this.vel.z) * accelK;
+    if (this.slideT > 0) {
+      // sliding: momentum carries you, steering barely bites
+      this.slideT -= dt;
+      const k = this.slideT / 0.8;
+      const slideSpeed = 10.5 * (0.35 + 0.65 * k) * this.speedMult;
+      this.vel.x += (this.slideVec.x * slideSpeed - this.vel.x) * Math.min(1, 14 * dt);
+      this.vel.z += (this.slideVec.z * slideSpeed - this.vel.z) * Math.min(1, 14 * dt);
+    } else {
+      const target = wish.multiplyScalar(speed);
+      const control = this.grounded ? 1 : 0.4;
+      const accelK = Math.min(1, 12 * control * dt);
+      this.vel.x += (target.x - this.vel.x) * accelK;
+      this.vel.z += (target.z - this.vel.z) * accelK;
+    }
 
     // ---- jetpack ----
     const thrusting = this.jetpack && jetThrust && this.jetFuel > 0;
@@ -151,7 +181,8 @@ export class Player {
     const wasGrounded = this.grounded;
     const prevY = this.pos.y;
     // jetpack floats gently: airborne gravity −13 while jetpacking (design), else engine gravity
-    const res = moveEntity(this.world.colliders, this.pos, this.vel, dt, RADIUS, HEIGHT, this.world.bounds);
+    const bodyHeight = this.crouching ? 1.15 : HEIGHT;
+    const res = moveEntity(this.world.colliders, this.pos, this.vel, dt, RADIUS, bodyHeight, this.world.bounds);
     this.grounded = res.grounded;
     if (this.pos.y > 50) { this.pos.y = 50; this.vel.y = Math.min(this.vel.y, 0); }
 
@@ -172,12 +203,13 @@ export class Player {
       if (Math.floor(prevPhase / Math.PI) !== Math.floor(this.bobPhase / Math.PI)) audio.footstep();
     }
 
-    // step-up eye smoothing
+    // step-up eye smoothing (+ crouch/slide camera drop)
     const stepJump = this.pos.y - prevY;
     if (this.grounded && Math.abs(stepJump) > 0.08 && Math.abs(stepJump) < 0.7) {
       this.smoothedEyeY -= stepJump;
     }
-    this.smoothedEyeY += (EYE_HEIGHT - this.smoothedEyeY) * Math.min(1, 14 * dt);
+    const eyeTarget = this.slideT > 0 ? 0.82 : this.crouching ? 1.05 : EYE_HEIGHT;
+    this.smoothedEyeY += (eyeTarget - this.smoothedEyeY) * Math.min(1, (this.slideT > 0 ? 10 : 14) * dt);
 
     this.recoilPitch *= Math.exp(-9 * dt);
     this.shake *= Math.exp(-7 * dt);
@@ -187,9 +219,9 @@ export class Player {
       this.health = Math.min(this.maxHealth, this.health + 40 * dt);
     }
 
-    // ---- FOV: ADS 75→59, sprint widens slightly ----
+    // ---- FOV: ADS 75→59, sprint widens slightly, slide widens more ----
     if (!this.viewLocked) {
-      const fov = this.baseFov - this.adsBlend * 16 + (this.sprinting ? 5 : 0);
+      const fov = this.baseFov - this.adsBlend * 16 + (this.sprinting ? 5 : 0) + (this.slideT > 0 ? 7 : 0);
       if (Math.abs(this.camera.fov - fov) > 0.01) {
         this.camera.fov = fov;
         this.camera.updateProjectionMatrix();
@@ -209,7 +241,8 @@ export class Player {
       this.pos.z
     );
     this.leanRoot.position.x = this.lean * LEAN_OFFSET + bobX;
-    this.leanRoot.rotation.z = -this.lean * LEAN_ROLL + Math.sin(this.bobPhase) * 0.006 * this.bobAmp;
+    this.leanRoot.rotation.z = -this.lean * LEAN_ROLL + Math.sin(this.bobPhase) * 0.006 * this.bobAmp
+      + (this.slideT > 0 ? 0.07 : 0); // slide body tilt
 
     if (!this.viewLocked) {
       const shakeX = (Math.random() - 0.5) * this.shake * 0.06;
@@ -221,6 +254,7 @@ export class Player {
 
   takeDamage(dmg) {
     if (this.dead) return;
+    if (this.invulnT > 0) return; // quick-revive grace period
     if (this.perks.has('ironhide')) dmg *= 0.8;
     this.timeSinceHurt = 0;
     if (this.armor > 0) {
@@ -266,6 +300,11 @@ export class Player {
     this.pitch.rotation.x = 0;
     this.yaw.rotation.y = 0;
     this.timeSinceHurt = 99;
+    this.invulnT = 0;
+    this.crouching = false;
+    this.slideT = 0;
+    this.slideCd = 0;
+    this.lockT = 0;
     this.viewLocked = false;
   }
 

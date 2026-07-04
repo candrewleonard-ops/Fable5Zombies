@@ -381,6 +381,25 @@ class AudioEngine {
     this._tone({ type: 'sine', from: 220, to: 440, dur: 0.9, peak: 0.15, delay: 0.4 });
   }
 
+  slide() {
+    this._noiseBurst({ peak: 0.22, decay: 0.5, freq: 500, filterType: 'bandpass', q: 0.5, rate: 0.7 });
+  }
+
+  // The Markus Special: three rising squeaks…
+  markusSqueeze() {
+    for (let i = 0; i < 3; i++) {
+      this._tone({ type: 'sine', from: 380 + i * 160, to: 620 + i * 220, dur: 0.16, peak: 0.2, delay: i * 0.3 });
+      this._noiseBurst({ peak: 0.12, decay: 0.1, freq: 2000, filterType: 'bandpass', q: 3 });
+    }
+  }
+
+  // …and the pop.
+  markusPop() {
+    this._noiseBurst({ peak: 0.7, decay: 0.22, freq: 320, q: 0.7, rate: 0.8 });
+    this._tone({ type: 'sine', from: 140, to: 40, dur: 0.3, peak: 0.4 });
+    this._tone({ type: 'sine', from: 1200, to: 300, dur: 0.1, peak: 0.2 });
+  }
+
   heliStart() {
     if (!this.ctx) return;
     for (let i = 0; i < 14; i++) {

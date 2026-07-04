@@ -201,6 +201,8 @@ export function createWorld(scene) {
   floorSlab(5.2, 14, 10, 18, 0.02);
   floorSlab(-14, 6.8, 0, 8.2, 3.2);        // mezzanine
   floorSlab(-9.7, 6.8, 8.2, 10, 3.2);      // mezz beside stair opening
+  floorSlab(-14, -12.8, 8.2, 10, 3.2);     // landing at the stair top — seals the
+                                           // pit you could fall into and get stuck
   floorSlab(-14, -6, -10, 0, 3.2);         // upstairs west wing (expansion)
 
   const ceil = (x0, x1, z0, z1, y) => {
@@ -390,12 +392,20 @@ export function createWorld(scene) {
       inner = new THREE.Vector3(fixed - n * 1.2, floorY, c);
       spawn = new THREE.Vector3(fixed + n * (6 + Math.random() * 3), 0, c + (Math.random() - 0.5) * 2);
     }
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(w + 0.15, 1.45, 0.1), MAT.woodDark);
-    frame.position.y = (b + t) / 2;
-    group.add(frame);
-    const hole = new THREE.Mesh(new THREE.BoxGeometry(w - 0.1, 1.28, 0.06), new THREE.MeshBasicMaterial({ color: 0x05070c }));
-    hole.position.y = (b + t) / 2;
-    group.add(hole);
+    // OPEN window frame (border only, nothing filling the middle) —
+    // you can see the horde shambling toward you between the boards
+    const midY = (b + t) / 2;
+    const sillBar = new THREE.Mesh(new THREE.BoxGeometry(w + 0.15, 0.09, 0.12), MAT.woodDark);
+    sillBar.position.y = midY - 0.68;
+    group.add(sillBar);
+    const headBar = new THREE.Mesh(new THREE.BoxGeometry(w + 0.15, 0.09, 0.12), MAT.woodDark);
+    headBar.position.y = midY + 0.68;
+    group.add(headBar);
+    for (const side of [-1, 1]) {
+      const jamb = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.45, 0.12), MAT.woodDark);
+      jamb.position.set(side * (w / 2 + 0.03), midY, 0);
+      group.add(jamb);
+    }
     const boards = [];
     for (let i = 0; i < 6; i++) {
       const board = new THREE.Mesh(new THREE.BoxGeometry(w + 0.35, 0.19, 0.05), MAT.wood);

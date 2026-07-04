@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { makeGlowSprite } from './effects.js';
 import { audio } from './audio.js';
 
 // BLACKROCK NUCLEAR FACILITY — an abandoned complex north-east of the bunker.
@@ -438,8 +439,7 @@ export function buildFacility(scene, world, effects, player) {
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8),
       new THREE.MeshBasicMaterial({ color: 0x54ff3a }));
     mesh.position.copy(from);
-    const light = new THREE.PointLight(0x54ff3a, 4, 4, 2);
-    mesh.add(light);
+    mesh.add(makeGlowSprite(0x54ff3a, 1.1));
     scene.add(mesh);
     S.spits.push({ mesh, vel: dir.multiplyScalar(20).add(new THREE.Vector3((Math.random() - 0.5) * 2.5, 1.6, (Math.random() - 0.5) * 2.5)), life: 4 });
     audio.spit();
