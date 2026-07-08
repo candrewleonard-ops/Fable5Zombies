@@ -51,20 +51,24 @@ export function makeZombieBody(bloodMoon = false, opts = {}) {
   const eyeR = eyeL.clone(); eyeR.position.x = 0.06; neck.add(eyeR);
   const headGore = mk(0.1, 0.12, 0.02, gore, neck, -0.07, 0.2, 0.132);
 
+  // limbs carry their own tag so the dismemberment system knows exactly
+  // which arm or leg a bullet chewed into
   const arm = (side) => {
+    const tag = side < 0 ? 'armL' : 'armR';
     const sh = new THREE.Group(); sh.position.set(0.28 * side, 0.52, 0); torso.add(sh);
-    const upper = mk(0.12, 0.34, 0.13, shirt, sh, 0, -0.16, 0, 'limb');
+    const upper = mk(0.12, 0.34, 0.13, shirt, sh, 0, -0.16, 0, tag);
     const el = new THREE.Group(); el.position.y = -0.33; sh.add(el);
-    const fore = mk(0.1, 0.32, 0.11, skin, el, 0, -0.15, 0, 'limb');
-    const hand = mk(0.11, 0.1, 0.12, skin, el, 0, -0.34, 0, 'limb');
+    const fore = mk(0.1, 0.32, 0.11, skin, el, 0, -0.15, 0, tag);
+    const hand = mk(0.11, 0.1, 0.12, skin, el, 0, -0.34, 0, tag);
     return { sh, el, meshes: [upper, fore, hand] };
   };
   const leg = (side) => {
+    const tag = side < 0 ? 'legL' : 'legR';
     const hip = new THREE.Group(); hip.position.set(0.12 * side, -0.02, 0); hips.add(hip);
-    const thigh = mk(0.16, 0.42, 0.17, pants, hip, 0, -0.22, 0, 'limb');
+    const thigh = mk(0.16, 0.42, 0.17, pants, hip, 0, -0.22, 0, tag);
     const kn = new THREE.Group(); kn.position.y = -0.44; hip.add(kn);
-    const shin = mk(0.13, 0.4, 0.14, pants, kn, 0, -0.2, 0, 'limb');
-    const boot = mk(0.14, 0.09, 0.24, boots, kn, 0, -0.42, 0.04, 'limb');
+    const shin = mk(0.13, 0.4, 0.14, pants, kn, 0, -0.2, 0, tag);
+    const boot = mk(0.14, 0.09, 0.24, boots, kn, 0, -0.42, 0.04, tag);
     return { hip, kn, meshes: [thigh, shin, boot] };
   };
 
@@ -149,6 +153,15 @@ export class Zombie {
     this.burnT = 0;   // hellfire ignite
     this.burnDps = 0;
     this.slowT = 0;   // nuclear goop slow
+
+    // ---- dismemberment ----
+    // each limb has its own health pool; chew through it and the limb comes
+    // off. Losing a leg makes a CRAWLER; losing arms weakens its attacks.
+    const limbPool = this.maxHp * (opts.armorTier ? 0.5 : 0.35);
+    this.limbHp = { armL: limbPool, armR: limbPool, legL: limbPool, legR: limbPool };
+    this.severed = { armL: false, armR: false, legL: false, legR: false };
+    this.crawling = false;
+    this.armless = 0;
     this.alive = true;
     this.dead = false;
 
@@ -376,8 +389,12 @@ export class Zombie {
         const distP = Math.hypot(P.pos.x - this.pos.x, P.pos.z - this.pos.z);
         const spd = this.speed * (distP < 3 ? 1.12 : 1) * (this.slowT > 0 ? 0.8 : 1);
         this.stepToward(tx, tz, dt, spd);
-        this.walkAnim(dt, spd);
-        this.armsReach(distP < 4 ? 1 : (this.speed > 2.4 ? 0.8 : 0.15), dt);
+        if (this.crawling) {
+          this.crawlAnim(dt, spd);
+        } else {
+          this.walkAnim(dt, spd);
+          this.armsReach(distP < 4 ? 1 : (this.speed > 2.4 ? 0.8 : 0.15), dt);
+        }
 
         // floor snap
         const g = groundHeightAt(world.colliders, this.pos.x, this.pos.z, this.pos.y, this.radius, 1.7);
@@ -402,10 +419,11 @@ export class Zombie {
         }
 
         // attack (LOS-checked so claws don't reach through walls)
+        // crawlers lunge shorter; armless zombies can only headbutt for less
         this.attackCd -= dt;
-        const reach = this.boss ? 2.3 : 1.7;
+        const reach = this.boss ? 2.3 : this.crawling ? 1.3 : 1.7;
         if (distP < reach && this.attackCd <= 0 && Math.abs(P.pos.y - this.pos.y) < 1.6 && !P.dead && this._losToPlayer()) {
-          this.attackCd = 1.15;
+          this.attackCd = this.armless === 2 ? 1.6 : 1.15;
           this.attackAnim = 0.4;
           this.attackPending = 0.28;
           audio.attackSnarl(Math.min(1, 3.5 / Math.max(1, distP)));
@@ -414,8 +432,9 @@ export class Zombie {
           this.attackPending -= dt;
           if (this.attackPending <= 0 && !this.dead && !P.dead) {
             const d2 = Math.hypot(P.pos.x - this.pos.x, P.pos.z - this.pos.z);
-            if (d2 < (this.boss ? 2.6 : 2.0) && this._losToPlayer()) {
-              P.takeDamage(this.boss ? 40 : mgr.hitDamage);
+            if (d2 < (this.boss ? 2.6 : this.crawling ? 1.6 : 2.0) && this._losToPlayer()) {
+              const armMult = this.armless === 2 ? 0.5 : this.armless === 1 ? 0.75 : 1;
+              P.takeDamage(this.boss ? 40 : mgr.hitDamage * armMult);
               audio.zombieBite();
               if (mgr.onHurtPlayer) mgr.onHurtPlayer(this);
             }
@@ -494,11 +513,82 @@ export class Zombie {
     this.mgr.effects.damageNumber(hitPoint, dmg, part === 'head');
     if (Math.random() < 0.35) this.mgr.effects.bloodDecal(this.pos.x, this.pos.z, this.pos.y + 0.02, 0.55);
     if (part === 'head') audio.headshot(); else audio.hit();
+    // ---- dismemberment (bosses hold together) ----
+    if (!this.boss && this.hp > 0) {
+      if (this.limbHp[part] !== undefined && !this.severed[part]) {
+        this.limbHp[part] -= dmg;
+        if (this.limbHp[part] <= 0) this.sever(part, dir);
+      } else if (part === 'blast' && dmg > this.maxHp * 0.3 && Math.random() < 0.75) {
+        // survive a big explosion → classic grenade crawler
+        const legs = ['legL', 'legR'].filter((l) => !this.severed[l]);
+        if (legs.length) this.sever(legs[Math.random() * legs.length | 0], dir);
+      }
+    }
     if (this.hp <= 0) {
       this.die(part === 'head');
       return { killed: true, head: part === 'head' };
     }
     return { killed: false, head: part === 'head' };
+  }
+
+  // rip a limb off: gore burst, tumbling limb prop, permanent stump —
+  // legs make a crawler, arms sap its attack
+  sever(part, dir) {
+    if (this.severed[part] || this.dead) return;
+    this.severed[part] = true;
+    const limb = this.parts[part];
+    const rootGroup = part.startsWith('arm') ? limb.sh : limb.hip;
+    const at = rootGroup.getWorldPosition(new THREE.Vector3());
+    rootGroup.visible = false;
+    for (const m of limb.meshes) m.userData.zombie = null; // bullets pass the ghost limb
+    // stump
+    const gore = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.12, 0.13),
+      new THREE.MeshStandardMaterial({ color: 0x6a0b08, roughness: 0.7 }));
+    gore.position.copy(rootGroup.position);
+    rootGroup.parent.add(gore);
+    this.mats.push(gore.material);
+    // flying limb + spray
+    this.mgr.spawnLimbProp(at, part, dir, this.pos.y);
+    this.mgr.effects.blood(at, dir ? dir.clone().negate() : new THREE.Vector3(0, 0.8, 0), 22, 6, this.pos.y);
+    this.mgr.effects.bloodDecal(this.pos.x, this.pos.z, this.pos.y + 0.02, 0.9);
+    audio.sever();
+    if (part.startsWith('leg')) {
+      if (!this.crawling) {
+        this.crawling = true;
+        this.speed *= 0.5;
+      }
+    } else {
+      this.armless = (this.severed.armL ? 1 : 0) + (this.severed.armR ? 1 : 0);
+    }
+    if (this.mgr.onSever) this.mgr.onSever(this, part);
+  }
+
+  crawlAnim(dt, spd) {
+    this.t += dt * (3 + spd * 3);
+    const p = this.parts;
+    const s = Math.sin(this.t);
+    p.hips.position.y = 0.3;
+    p.torso.rotation.x = 1.28;                  // flat on its front
+    p.torso.rotation.z = s * 0.05;
+    p.neck.rotation.x = -1.15;                  // head craned up at you
+    p.neck.rotation.z = Math.sin(this.t * 0.4 + this.id) * 0.1;
+    if (!this.severed.armL) {                   // clawing itself forward
+      p.armL.sh.rotation.x = -2.7 + s * 0.55;
+      p.armL.el.rotation.x = -0.5 + Math.max(0, s) * 0.4;
+    }
+    if (!this.severed.armR) {
+      p.armR.sh.rotation.x = -2.7 - s * 0.55;
+      p.armR.el.rotation.x = -0.5 + Math.max(0, -s) * 0.4;
+    }
+    for (const l of ['legL', 'legR']) {         // whatever's left drags limp
+      if (this.severed[l]) continue;
+      this.parts[l].hip.rotation.x = 0.3 + Math.abs(s) * 0.08;
+      this.parts[l].kn.rotation.x = 0.25;
+    }
+    // the stump leaks
+    if (Math.random() < dt * 1.4) {
+      this.mgr.effects.blood(this.pos.clone().setY(this.pos.y + 0.35), new THREE.Vector3(0, 0.3, 0), 3, 2, this.pos.y);
+    }
   }
 
   die(headshot) {
@@ -538,6 +628,38 @@ export class ZombieManager {
     this.onKill = null;        // (zombie, headshot)
     this.onHurtPlayer = null;
     this.onBoards = null;
+    this.onSever = null;       // (zombie, part) — dismemberment bounty
+    this.limbProps = [];       // severed limbs tumbling through the air
+  }
+
+  // a severed limb goes flying: skin/pants-colored boxes with spin + gravity
+  spawnLimbProp(at, part, dir, floorY = 0) {
+    if (this.limbProps.length >= 10) {
+      const old = this.limbProps.shift();
+      this.scene.remove(old.group);
+    }
+    const isArm = part.startsWith('arm');
+    const g = new THREE.Group();
+    const matA = new THREE.MeshStandardMaterial({ color: isArm ? 0x8a9a7b : 0x33302b, roughness: 0.9 });
+    const matGore = new THREE.MeshStandardMaterial({ color: 0x6a0b08, roughness: 0.7 });
+    const seg1 = new THREE.Mesh(new THREE.BoxGeometry(isArm ? 0.11 : 0.15, isArm ? 0.32 : 0.4, isArm ? 0.12 : 0.16), matA);
+    g.add(seg1);
+    const seg2 = new THREE.Mesh(new THREE.BoxGeometry(isArm ? 0.1 : 0.13, isArm ? 0.3 : 0.38, isArm ? 0.11 : 0.14), matA);
+    seg2.position.y = -0.32;
+    seg2.rotation.x = 0.4;
+    g.add(seg2);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.12), matGore);
+    cap.position.y = 0.18;
+    g.add(cap);
+    g.position.copy(at);
+    this.scene.add(g);
+    const away = dir ? dir.clone().setY(0).normalize() : new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+    this.limbProps.push({
+      group: g, mats: [matA, matGore],
+      vel: new THREE.Vector3(away.x * (1.5 + Math.random() * 2) , 3 + Math.random() * 2, away.z * (1.5 + Math.random() * 2)),
+      rot: new THREE.Vector3(Math.random() * 9, Math.random() * 9, Math.random() * 9),
+      t: 0, floor: floorY,
+    });
   }
 
   get aliveCount() { return this.zombies.filter((z) => !z.dead).length; }
@@ -581,7 +703,8 @@ export class ZombieManager {
       if (d < radius) {
         const scaled = dmg * (1 - (d / radius) * 0.55);
         if (onHit) onHit(z, scaled);
-        z.takeDamage(scaled, 'body', c, c.clone().sub(center).normalize());
+        // 'blast' lets survivors lose a leg — the classic grenade crawler
+        z.takeDamage(scaled, 'blast', c, c.clone().sub(center).normalize());
       }
     }
   }
@@ -601,6 +724,27 @@ export class ZombieManager {
       const z = this.zombies[i];
       z.update(dt);
       if (!z.alive) this.zombies.splice(i, 1);
+    }
+    // severed limbs tumble, land, then sink away
+    for (let i = this.limbProps.length - 1; i >= 0; i--) {
+      const p = this.limbProps[i];
+      p.t += dt;
+      p.vel.y -= 11 * dt;
+      p.group.position.addScaledVector(p.vel, dt);
+      p.group.rotation.x += p.rot.x * dt;
+      p.group.rotation.z += p.rot.z * dt;
+      if (p.group.position.y < p.floor + 0.08 && p.vel.y < 0) {
+        p.group.position.y = p.floor + 0.08;
+        p.vel.set(p.vel.x * 0.4, -p.vel.y * 0.25, p.vel.z * 0.4);
+        p.rot.multiplyScalar(0.4);
+      }
+      if (p.t > 3.5) p.group.position.y -= dt * 0.25;
+      if (p.t > 4.5) {
+        this.scene.remove(p.group);
+        p.group.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
+        for (const m of p.mats) m.dispose();
+        this.limbProps.splice(i, 1);
+      }
     }
   }
 

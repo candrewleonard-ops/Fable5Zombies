@@ -254,6 +254,12 @@ barrels.onBlast = (center, radius, dmg) => {
   if (dP < radius * 0.7 && !player.dead) player.takeDamage(30);
 };
 
+// dismemberment bounty: every limb blown off pays out
+zombies.onSever = (z, part) => {
+  addCombatPoints(25);
+  hud.hitmarker(false);
+};
+
 zombies.onKill = (z, headshot) => {
   state.kills++;
   addCombatPoints(headshot ? ECON.headshotKillBonus : ECON.killBonus);

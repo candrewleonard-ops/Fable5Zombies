@@ -466,6 +466,58 @@ push(`zombie can never occupy the player (sep=${meleeRes.sep?.toFixed(2)} ≥ 0.
 push(`F-shove damages + pushes back (${meleeRes.hpBefore?.toFixed(0)}→${meleeRes.hpAfter?.toFixed(0)}, ${meleeRes.before?.toFixed(2)}→peak ${meleeRes.after?.toFixed(2)}m)`,
   meleeRes.skip || (meleeRes.hpAfter < meleeRes.hpBefore && meleeRes.after > meleeRes.before + 0.3));
 
+// ---------- dismemberment: sever legs → crawler, arms → weak attacks, blast → crawler ----------
+const gore = await page.evaluate(() => {
+  const g = window.__game;
+  const z = g.zombies.zombies.find((z) => !z.dead);
+  if (!z) return { skip: true };
+  z.hp = z.maxHp; // top up so limb damage can't kill it mid-test
+  const hit = z.pos.clone(); hit.y += 1;
+  const up = hit.clone().setY(1).normalize();
+  const tagged = z.hitMeshes.some((m) => m.userData.part === 'armL')
+    && z.hitMeshes.some((m) => m.userData.part === 'legR');
+  // --- leg sever: pour damage into legL until the pool (maxHp*0.35) breaks ---
+  const speedBefore = z.speed;
+  const pBefore = g.state.points;
+  const chunk = z.maxHp * 0.3; // two hits break even an armored limb pool (0.5×maxHp)
+  z.takeDamage(chunk, 'legL', hit.clone(), up.clone());
+  z.hp = z.maxHp;
+  z.takeDamage(chunk, 'legL', hit.clone(), up.clone());
+  const leg = {
+    severed: z.severed.legL, crawling: z.crawling,
+    hidden: !z.parts.legL.hip.visible,
+    speedHalved: Math.abs(z.speed - speedBefore * 0.5) < 0.01,
+    bounty: g.state.points - pBefore,
+    props: g.zombies.limbProps.length,
+  };
+  // --- arm sever on the same zombie ---
+  z.hp = z.maxHp;
+  z.takeDamage(chunk, 'armR', hit.clone(), up.clone());
+  z.hp = z.maxHp;
+  z.takeDamage(chunk, 'armR', hit.clone(), up.clone());
+  const arm = { severed: z.severed.armR, armless: z.armless, hidden: !z.parts.armR.sh.visible };
+  // --- blast crawler: big explosion damage severs a remaining leg (75% roll) ---
+  let blastSevered = false;
+  for (let i = 0; i < 12 && !blastSevered; i++) {
+    z.hp = z.maxHp;
+    z.takeDamage(z.maxHp * 0.35, 'blast', hit.clone(), up.clone());
+    blastSevered = z.severed.legR;
+  }
+  // props tumble + eventually clean themselves up
+  g.simulate(6);
+  const propsGone = g.zombies.limbProps.length === 0;
+  return { skip: false, tagged, leg, arm, blastSevered, propsGone };
+});
+push(`limb hit-meshes carry side tags`, gore.skip || gore.tagged);
+push(`leg sever → crawler (severed=${gore.leg?.severed}, crawl=${gore.leg?.crawling}, hidden=${gore.leg?.hidden}, halfSpeed=${gore.leg?.speedHalved})`,
+  gore.skip || (gore.leg.severed && gore.leg.crawling && gore.leg.hidden && gore.leg.speedHalved));
+push(`sever pays bounty + spawns flying limb (+${gore.leg?.bounty} pts, ${gore.leg?.props} props)`,
+  gore.skip || (gore.leg.bounty >= 20 && gore.leg.props >= 1));
+push(`arm sever → armless (severed=${gore.arm?.severed}, armless=${gore.arm?.armless}, hidden=${gore.arm?.hidden})`,
+  gore.skip || (gore.arm.severed && gore.arm.armless === 1 && gore.arm.hidden));
+push(`big blast makes grenade crawlers (${gore.blastSevered}) & limb props clean up (${gore.propsGone})`,
+  gore.skip || (gore.blastSevered && gore.propsGone));
+
 // ---------- W.A.V.E. cannon + ★ The Blaster ----------
 const legends = await page.evaluate(async () => {
   const g = window.__game;

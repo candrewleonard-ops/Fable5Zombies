@@ -400,6 +400,14 @@ class AudioEngine {
     this._tone({ type: 'sine', from: 1200, to: 300, dur: 0.1, peak: 0.2 });
   }
 
+  // Dismemberment: wet rip + gristle crunch + falling squelch.
+  sever() {
+    this._noiseBurst({ peak: 0.5, decay: 0.18, freq: 550, filterType: 'bandpass', q: 1.4, rate: 0.75 });
+    this._noiseBurst({ peak: 0.3, decay: 0.32, freq: 180, filterType: 'lowpass', rate: 0.6 });
+    this._tone({ type: 'sawtooth', from: 260, to: 60, dur: 0.22, peak: 0.16 });
+    this._tone({ type: 'sine', from: 900, to: 320, dur: 0.09, peak: 0.12, delay: 0.03 });
+  }
+
   heliStart() {
     if (!this.ctx) return;
     for (let i = 0; i < 14; i++) {

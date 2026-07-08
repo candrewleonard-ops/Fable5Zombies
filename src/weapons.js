@@ -548,7 +548,7 @@ export class WeaponSystem {
           this.mobs.damage(mHit.mob, this.def.dmg * dmgMult, mHit.point, dir);
         } else if (zHit) {
           end = zHit.point;
-          const mult = zHit.part === 'head' ? this.def.headMult : zHit.part === 'legs' ? 0.8 : 1;
+          const mult = zHit.part === 'head' ? this.def.headMult : zHit.part === 'body' ? 1 : 0.8;
           const dmg = this.def.dmg * mult * dmgMult;
           zombies.damage(zHit.zombie, dmg, zHit.part, dir, zHit.point, this);
           if (this.def.burn) { zHit.zombie.burnT = this.def.burn.dur; zHit.zombie.burnDps = this.def.burn.dps * dmgMult; }
